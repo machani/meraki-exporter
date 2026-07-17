@@ -1,0 +1,41 @@
+# systemd unit for meraki-exporter
+# Install:
+#   sudo cp meraki-exporter /usr/local/bin/
+#   sudo cp deploy/meraki-exporter.service /etc/systemd/system/
+#   sudo cp deploy/meraki-exporter.env.example /etc/meraki-exporter.env  (chmod 600, root:root)
+#   sudo useradd --system --no-create-home --shell /usr/sbin/nologin meraki-exporter
+#   sudo systemctl daemon-reload && sudo systemctl enable --now meraki-exporter
+
+[Unit]
+Description=Prometheus exporter for Cisco Meraki Dashboard API
+Documentation=https://github.com/machani/meraki-exporter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=meraki-exporter
+Group=meraki-exporter
+EnvironmentFile=/etc/meraki-exporter.env
+ExecStart=/usr/local/bin/meraki-exporter
+Restart=on-failure
+RestartSec=10
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

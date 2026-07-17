@@ -1,0 +1,243 @@
+# Prometheus alerting rules for meraki-exporter.
+# Load via: rule_files: ['alerts.yml'] in prometheus.yml
+#
+# Timing assumptions: the staleness/duration thresholds below assume a 5m fast
+# / 30m slow poll interval. Each rule notes the value to use for the shipped
+# defaults (120s fast / 15m slow); revisit them if your intervals differ.
+groups:
+  - name: meraki-devices
+    rules:
+      - alert: MerakiDeviceOffline
+        expr: meraki_device_status{status="offline"} == 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Meraki device {{ $labels.name }} ({{ $labels.serial }}) is offline'
+          description: 'Device in network {{ $labels.network_name }} has been offline for 10 minutes.'
+
+      - alert: MerakiDeviceAlerting
+        expr: meraki_device_status{status="alerting"} == 1
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Meraki device {{ $labels.name }} ({{ $labels.serial }}) is in alerting state'
+          description: 'Device in network {{ $labels.network_name }} is up but degraded (check Dashboard for the reason, e.g. port/PSU/gateway issue) for 30 minutes.'
+
+  - name: meraki-wan
+    rules:
+      - alert: MerakiUplinkFailed
+        expr: meraki_uplink_status{status="failed"} == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Meraki uplink {{ $labels.interface }} on {{ $labels.serial }} failed'
+          description: 'Appliance uplink in network {{ $labels.network_name }} has been in failed state for 5 minutes.'
+
+      - alert: MerakiUplinkHighLoss
+        expr: meraki_uplink_loss_percent > 5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Uplink {{ $labels.uplink }} on {{ $labels.serial }} has {{ $value | printf "%.1f" }}% packet loss'
+          description: 'Sustained packet loss above 5% for 15 minutes in network {{ $labels.network_name }} (uplink IP {{ $labels.ip }}).'
+
+      - alert: MerakiUplinkHighLatency
+        expr: meraki_uplink_latency_seconds > 0.3
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Uplink {{ $labels.uplink }} on {{ $labels.serial }} has {{ $value | humanizeDuration }} latency'
+          description: 'Sustained latency above 300ms for 15 minutes in network {{ $labels.network_name }} (uplink IP {{ $labels.ip }}).'
+      - alert: MerakiWarmSpareActive
+        # A spare appliance with an active uplink is passing traffic — the
+        # primary has failed over. Matches the client's HA MX deployments.
+        expr: (meraki_appliance_ha_role{role="spare"} == 1) and on(serial) (max by (serial) (meraki_uplink_status{status="active"} == 1))
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Warm spare {{ $labels.serial }} is passing traffic (failover active)'
+          description: 'Spare MX in network {{ $labels.network_name }} has had an active uplink for 5 minutes — check the primary appliance. Requires the uplinks collector (HA state rides along at no extra API cost).'
+
+  - name: meraki-vpn
+    rules:
+      - alert: MerakiVpnPeerUnreachable
+        # meraki_vpn_peer_status is opt-in (COLLECTORS_ENABLED must include
+        # vpn) — this rule only fires where the collector is enabled.
+        expr: meraki_vpn_peer_status{status="unreachable"} == 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Meraki VPN peer {{ $labels.peer_name }} unreachable from network {{ $labels.network_name }}'
+          description: 'Site-to-site VPN peer ({{ $labels.peer_type }}) has been unreachable for 10 minutes.'
+
+  - name: meraki-wireless
+    rules:
+      - alert: MerakiChannelUtilizationHigh
+        expr: meraki_wireless_channel_utilization_percent{kind="total"} > 80
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'AP {{ $labels.serial }} ({{ $labels.band }} GHz) at {{ $value | printf "%.0f" }}% channel utilization'
+          description: 'Channel in network {{ $labels.network_name }} has been saturated (>80%) for 30 minutes; expect degraded client experience.'
+
+      - alert: MerakiNonWifiInterference
+        expr: meraki_wireless_channel_utilization_percent{kind="non_wifi"} > 40
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'AP {{ $labels.serial }} ({{ $labels.band }} GHz) sees {{ $value | printf "%.0f" }}% non-WiFi interference'
+          description: 'Sustained non-802.11 interference in network {{ $labels.network_name }} — look for microwaves, cameras, Bluetooth or other RF sources near the AP.'
+
+  - name: meraki-sensors
+    rules:
+      # No default thresholds for temperature/humidity/CO2/noise — those are
+      # deployment-specific (a server room and a walk-in freezer want
+      # opposite temperature bounds). Water, door, and battery are universal
+      # enough to ship as defaults; add your own rules for the rest.
+      - alert: MerakiSensorWaterDetected
+        expr: meraki_sensor_water_detected == 1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Meraki sensor {{ $labels.serial }} detects water'
+          description: 'Water detected in network {{ $labels.network_name }} for 2 minutes.'
+
+      - alert: MerakiSensorDoorOpenTooLong
+        expr: meraki_sensor_door_open == 1
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Meraki sensor {{ $labels.serial }} door open for 30 minutes'
+          description: 'Door monitored in network {{ $labels.network_name }} has been open for 30 minutes.'
+
+      - alert: MerakiSensorBatteryLow
+        expr: meraki_sensor_battery_percent < 10
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Meraki sensor {{ $labels.serial }} battery at {{ $value | printf "%.0f" }}%'
+          description: 'Sensor in network {{ $labels.network_name }} has been below 10% battery for 30 minutes.'
+
+  - name: meraki-licensing
+    rules:
+      - alert: MerakiLicenseExpiringSoon
+        expr: (meraki_license_expiration_timestamp_seconds - time()) < 30 * 86400
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Meraki license expires in {{ $value | humanizeDuration }}'
+          description: 'Organization co-term license expires in less than 30 days. Renew to avoid loss of Dashboard functionality.'
+
+      - alert: MerakiLicenseNotOK
+        expr: meraki_license_status_ok == 0
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Meraki org license status is {{ $labels.status }}'
+          description: 'Organization license status has not been OK for 1 hour.'
+
+  - name: meraki-api
+    rules:
+      - alert: MerakiExporterRateLimited
+        expr: increase(meraki_exporter_api_requests_total{code="429"}[30m]) > 10
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Meraki exporter received {{ $value | printf "%.0f" }} rate-limit responses in 30m'
+          description: 'The exporter is being throttled by the Meraki API. Other API consumers may be eating the per-org budget, or intervals are too aggressive — consider raising SCRAPE_INTERVAL / SLOW_SCRAPE_INTERVAL.'
+
+      - alert: MerakiOrgAPIThrottled
+        # meraki_org_api_response_codes is a 24h-window count across ALL API
+        # consumers in the org (not just this exporter).
+        expr: meraki_org_api_response_codes{code="429"} > 1000
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Org-wide Meraki API 429 count is {{ $value | printf "%.0f" }} over the last 24h'
+          description: 'Some API consumer in the organization is being heavily rate limited. Check Dashboard > Organization > API usage to identify it.'
+
+  - name: meraki-orgalerts
+    rules:
+      - alert: MerakiOrgCriticalAlertsOpen
+        expr: sum(meraki_org_open_alerts{severity="critical"}) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Meraki Dashboard reports {{ $value | printf "%.0f" }} open critical-severity org alert(s)'
+          description: 'Check Dashboard > Organization > Assurance > Alerts for details.'
+
+  - name: meraki-exporter
+    rules:
+      - alert: MerakiExporterDown
+        # Matches job names from scrape-config.example.yml (meraki, meraki-fast,
+        # meraki-slow) — adjust the regex if your job names differ.
+        expr: up{job=~"meraki.*"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Meraki exporter scrape target {{ $labels.job }} is down'
+          description: 'Prometheus cannot scrape {{ $labels.instance }} for 5 minutes — exporter process or host is down. Poll-staleness alerts cannot fire in this state; this is the safety net.'
+
+      - alert: MerakiExporterMetricsAbsent
+        expr: absent(meraki_exporter_build_info)
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'No meraki_exporter_build_info series present'
+          description: 'The exporter has vanished from Prometheus entirely (scrape job removed or renamed?). Catches cases the up == 0 rule cannot.'
+
+      - alert: MerakiCollectorFailing
+        expr: meraki_exporter_collector_success == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Meraki exporter collector {{ $labels.collector }} is failing'
+          description: 'Collector has failed every poll for 15 minutes; its metrics are stale. Check exporter logs (journalctl -u meraki-exporter).'
+
+      - alert: MerakiClientsCollectorSlow
+        # 1440s = 80% of a 30m SLOW_SCRAPE_INTERVAL (use 720 for the 15m
+        # default). The clients collector makes one API call per network, so
+        # raise this alongside the interval on orgs with many networks.
+        expr: meraki_exporter_collector_duration_seconds{collector="clients"} > 1440
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Clients collector takes {{ $value | humanizeDuration }} per poll'
+          description: 'The clients collector is close to exceeding the slow poll interval; polls will start aborting. Raise SLOW_SCRAPE_INTERVAL or trim COLLECTORS_ENABLED.'
+
+      - alert: MerakiExporterFastGroupStale
+        # 3x a 5m fast interval; use 600 for the 2m default.
+        expr: time() - meraki_exporter_last_poll_timestamp_seconds{group="fast"} > 900
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Meraki exporter fast poll group has not completed in over 15 minutes'
+          description: 'Device/uplink/wireless metrics are stale. Check exporter logs and Meraki API reachability.'
+
+      - alert: MerakiExporterSlowGroupStale
+        # 3x a 30m slow interval; use 3600 for the 15m default.
+        expr: time() - meraki_exporter_last_poll_timestamp_seconds{group="slow"} > 5400
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Meraki exporter slow poll group has not completed in over 90 minutes'
+          description: 'Client/license/API-usage metrics are stale. Check exporter logs; see also MerakiClientsCollectorSlow.'

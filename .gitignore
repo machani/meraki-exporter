@@ -1,0 +1,19 @@
+# Binaries (anchored to repo root so cmd/meraki-exporter/ is not ignored)
+/meraki-exporter
+/meraki-exporter-*
+*.exe
+
+# Secrets — never commit real env files
+meraki-exporter.env
+*.env
+!*.env.example
+
+# Go (go.sum should be committed once generated)
+/vendor/
+
+# Local scratch: applied/env-specific manifests and superseded files.
+# Never commit — copies here may embed live endpoints or credentials.
+archive/
+
+# Machine-local Claude Code settings (per-user permission allowlist)
+.claude/settings.local.json

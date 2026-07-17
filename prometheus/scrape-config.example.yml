@@ -1,0 +1,34 @@
+# Example Prometheus scrape config for meraki-exporter.
+# Merge into your prometheus.yml.
+#
+# The exporter exposes three endpoints:
+#   /metrics       everything combined (simple setups)
+#   /metrics/fast  status/uplink/wireless metrics + exporter runtime metrics
+#   /metrics/slow  clients, licenses, API usage (data refreshes every 15m by default)
+#
+# Use EITHER the single combined job OR the fast+slow pair — not both,
+# or you'll ingest duplicate series.
+
+# Option A: split jobs (recommended — slow series sampled less often)
+scrape_configs:
+  - job_name: meraki-fast
+    scrape_interval: 60s
+    metrics_path: /metrics/fast
+    static_configs:
+      - targets: ['localhost:9822']
+
+  - job_name: meraki-slow
+    scrape_interval: 5m
+    metrics_path: /metrics/slow
+    static_configs:
+      - targets: ['localhost:9822']
+
+# Option B: single combined job
+#scrape_configs:
+#  - job_name: meraki
+#    scrape_interval: 60s
+#    static_configs:
+#      - targets: ['localhost:9822']
+
+rule_files:
+  - 'alerts.yml'

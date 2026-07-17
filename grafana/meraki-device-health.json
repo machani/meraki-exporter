@@ -1,0 +1,255 @@
+{
+  "title": "Meraki Device Health",
+  "uid": "meraki-device-health",
+  "description": "Device status, inventory, and firmware distribution from meraki-exporter",
+  "tags": ["meraki", "network", "devices"],
+  "schemaVersion": 39,
+  "editable": true,
+  "graphTooltip": 1,
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "1m",
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "label": "Data source",
+        "query": "prometheus",
+        "current": {}
+      },
+      {
+        "name": "network",
+        "type": "query",
+        "label": "Network",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "query": { "query": "label_values(meraki_device_status, network_name)", "refId": "A" },
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Total Devices",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "targets": [
+        { "refId": "A", "expr": "count(meraki_device_info{network_name=~\"$network\"}) or vector(0)", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none", "color": { "mode": "fixed", "fixedColor": "blue" } }, "overrides": [] }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Online",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "targets": [
+        { "refId": "A", "expr": "count(meraki_device_status{status=\"online\",network_name=~\"$network\"} == 1) or vector(0)", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none", "color": { "mode": "fixed", "fixedColor": "green" } }, "overrides": [] }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Alerting",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "targets": [
+        { "refId": "A", "expr": "count(meraki_device_status{status=\"alerting\",network_name=~\"$network\"} == 1) or vector(0)", "instant": true }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 1 } ] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Offline",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "targets": [
+        { "refId": "A", "expr": "count(meraki_device_status{status=\"offline\",network_name=~\"$network\"} == 1) or vector(0)", "instant": true }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Dormant",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "targets": [
+        { "refId": "A", "expr": "count(meraki_device_status{status=\"dormant\",network_name=~\"$network\"} == 1) or vector(0)", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none", "color": { "mode": "fixed", "fixedColor": "text" } }, "overrides": [] }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Availability",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "targets": [
+        { "refId": "A", "expr": "100 * count(meraki_device_status{status=\"online\",network_name=~\"$network\"} == 1) / count(meraki_device_status{status=\"online\",network_name=~\"$network\"})", "instant": true }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "orange", "value": 95 }, { "color": "green", "value": 99 } ] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "type": "piechart",
+      "title": "Devices by Product Type",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 4 },
+      "targets": [
+        { "refId": "A", "expr": "count by (product_type) (meraki_device_info{network_name=~\"$network\"})", "instant": true, "legendFormat": "{{product_type}}" }
+      ],
+      "options": { "pieType": "donut", "legend": { "displayMode": "list", "placement": "right" } },
+      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Devices Not Online Over Time",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 4 },
+      "targets": [
+        { "refId": "A", "expr": "count(meraki_device_status{status=\"offline\",network_name=~\"$network\"} == 1) or vector(0)", "legendFormat": "offline" },
+        { "refId": "B", "expr": "count(meraki_device_status{status=\"alerting\",network_name=~\"$network\"} == 1) or vector(0)", "legendFormat": "alerting" },
+        { "refId": "C", "expr": "count(meraki_device_status{status=\"dormant\",network_name=~\"$network\"} == 1) or vector(0)", "legendFormat": "dormant" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "none", "min": 0, "custom": { "fillOpacity": 10 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "offline" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } } ] },
+          { "matcher": { "id": "byName", "options": "alerting" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } } ] }
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "type": "table",
+      "title": "Firmware Distribution",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 12 },
+      "targets": [
+        { "refId": "A", "expr": "count by (product_type, model, firmware) (meraki_device_info{network_name=~\"$network\"})", "instant": true, "format": "table" }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true },
+            "indexByName": { "product_type": 0, "model": 1, "firmware": 2, "Value": 3 },
+            "renameByName": { "product_type": "Type", "model": "Model", "firmware": "Firmware", "Value": "Devices" }
+          }
+        },
+        { "id": "sortBy", "options": { "sort": [ { "field": "Devices", "desc": true } ] } }
+      ],
+      "fieldConfig": { "defaults": {}, "overrides": [] }
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "Device Inventory",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 12 },
+      "targets": [
+        { "refId": "A", "expr": "meraki_device_info{network_name=~\"$network\"}", "instant": true, "format": "table" }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true, "Value": true, "__name__": true, "job": true, "instance": true, "network_id": true, "mac": true },
+            "indexByName": { "name": 0, "serial": 1, "model": 2, "product_type": 3, "firmware": 4, "network_name": 5 },
+            "renameByName": { "name": "Device", "serial": "Serial", "model": "Model", "product_type": "Type", "firmware": "Firmware", "network_name": "Network" }
+          }
+        }
+      ],
+      "fieldConfig": { "defaults": {}, "overrides": [] }
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Switch Ports Down (enabled)",
+      "description": "Requires the opt-in switchports collector (COLLECTORS_ENABLED=...,switchports). Counts only administratively-enabled ports, to exclude intentionally-unused disconnected ports.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 21 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count(meraki_switch_port_status{status=\"Disconnected\",network_name=~\"$network\"} == 1 and on(serial, network_id, port_id) meraki_switch_port_enabled == 1) or vector(0)",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 1 } ] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "PoE Ports Active",
+      "description": "Requires the opt-in switchports collector (COLLECTORS_ENABLED=...,switchports).",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 21 },
+      "targets": [
+        { "refId": "A", "expr": "count(meraki_switch_port_poe_allocated{network_name=~\"$network\"} == 1) or vector(0)", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none", "color": { "mode": "fixed", "fixedColor": "blue" } }, "overrides": [] }
+    },
+    {
+      "id": 13,
+      "type": "table",
+      "title": "Enabled Ports Currently Disconnected",
+      "description": "Requires the opt-in switchports collector (COLLECTORS_ENABLED=...,switchports).",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 21 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "meraki_switch_port_status{status=\"Disconnected\",network_name=~\"$network\"} == 1 and on(serial, network_id, port_id) meraki_switch_port_enabled == 1",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true, "Value": true, "__name__": true, "job": true, "instance": true, "network_id": true },
+            "indexByName": { "serial": 0, "network_name": 1, "port_id": 2, "status": 3 },
+            "renameByName": { "serial": "Switch", "network_name": "Network", "port_id": "Port", "status": "Status" }
+          }
+        }
+      ],
+      "fieldConfig": { "defaults": {}, "overrides": [] }
+    }
+  ]
+}
