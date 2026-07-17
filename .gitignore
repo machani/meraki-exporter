@@ -17,3 +17,8 @@ archive/
 
 # Machine-local Claude Code settings (per-user permission allowlist)
 .claude/settings.local.json
+
+# Local Claude Code working files — private maintainer context, not for the
+# public repo (carry provenance/scrubbing notes about the private source).
+CLAUDE.md
+MEMORY.md
