@@ -43,7 +43,20 @@ The exporter also exposes meta-metrics: `meraki_exporter_api_requests_total{code
 
 Notes: `uplinks` loss/latency covers MX/MG WAN uplinks that Meraki probes; `wireless` requires MR access points; `licenses` expiration applies to co-termination licensing orgs. Collectors that don't apply to your hardware can be disabled via `COLLECTORS_ENABLED`.
 
-## Build
+## Get the binary
+
+### Option A: download a release binary
+
+Prebuilt static binaries for `linux/amd64`, `linux/arm64`, `darwin/amd64`, and `darwin/arm64` are attached to each [GitHub Release](https://github.com/machani/meraki-exporter/releases), along with a `.sha256` checksum:
+
+```sh
+curl -LO https://github.com/machani/meraki-exporter/releases/latest/download/meraki-exporter-linux-amd64
+curl -LO https://github.com/machani/meraki-exporter/releases/latest/download/meraki-exporter-linux-amd64.sha256
+sha256sum -c meraki-exporter-linux-amd64.sha256
+chmod +x meraki-exporter-linux-amd64
+```
+
+### Option B: build from source
 
 Requires Go 1.25+ to satisfy the `go` directive; `go.mod` also pins `toolchain go1.26.5`, so any Go ≥ 1.21 will download and use the right toolchain automatically.
 
