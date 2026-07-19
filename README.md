@@ -113,6 +113,14 @@ Alerting rules are in [prometheus/alerts.yml](prometheus/alerts.yml) (device off
 
 Four importable dashboards live in [grafana/](grafana/) — overview, device health, uplink/WAN quality, and wireless — see [grafana/README.md](grafana/README.md) for what each contains and how to import them.
 
+| Overview | Device health |
+|---|---|
+| <img src="grafana/screenshots/overview.jpg" width="400" alt="Meraki overview dashboard"> | <img src="grafana/screenshots/device-health.jpg" width="400" alt="Meraki device health dashboard"> |
+
+| Uplink / WAN | Wireless |
+|---|---|
+| <img src="grafana/screenshots/uplink-wan.jpg" width="400" alt="Meraki uplink/WAN dashboard"> | <img src="grafana/screenshots/wireless.jpg" width="400" alt="Meraki wireless dashboard"> |
+
 ## Troubleshooting
 
 - **401 Unauthorized** — bad or non-admin API key, or the key can't see the target org. Verify with `curl -H "Authorization: Bearer $KEY" https://api.meraki.com/api/v1/organizations`.
