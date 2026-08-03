@@ -47,19 +47,19 @@ var (
 		[]string{"serial", "network_id", "network_name", "interface", "status"}, nil)
 	descUplinkLossPercent = prometheus.NewDesc("meraki_uplink_loss_percent",
 		"Uplink packet loss percentage, averaged over the last 5 minutes.",
-		[]string{"serial", "network_id", "network_name", "uplink", "ip"}, nil)
+		[]string{"serial", "network_id", "network_name", "interface", "ip"}, nil)
 	descUplinkLatencySeconds = prometheus.NewDesc("meraki_uplink_latency_seconds",
 		"Uplink latency in seconds, averaged over the last 5 minutes.",
-		[]string{"serial", "network_id", "network_name", "uplink", "ip"}, nil)
+		[]string{"serial", "network_id", "network_name", "interface", "ip"}, nil)
 	descApplianceHAEnabled = prometheus.NewDesc("meraki_appliance_ha_enabled",
 		"1 if warm spare high availability is enabled for the appliance, 0 otherwise. Only emitted for appliances reporting HA state.",
 		[]string{"serial", "network_id", "network_name"}, nil)
 	descApplianceHARole = prometheus.NewDesc("meraki_appliance_ha_role",
-		"Appliance warm-spare role state set: 1 for the current role, 0 otherwise. A spare with an active uplink means failover is in effect.",
+		"Appliance warm-spare role state set: 1 for the current role, 0 otherwise. Only meaningful where meraki_appliance_ha_enabled is 1.",
 		[]string{"serial", "network_id", "network_name", "role"}, nil)
 
 	descOrgClients = prometheus.NewDesc("meraki_org_clients",
-		"Total clients seen org-wide during the configured timespan.",
+		"Total clients seen org-wide. Window is max(CLIENTS_TIMESPAN, 24h) — the org endpoint aggregates daily and returns 0 below that.",
 		nil, nil)
 	descNetworkClients = prometheus.NewDesc("meraki_network_clients",
 		"Clients seen per network during the configured timespan.",

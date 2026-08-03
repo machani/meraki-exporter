@@ -125,7 +125,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
       "targets": [
-        { "refId": "A", "expr": "meraki_uplink_loss_percent", "legendFormat": "{{serial}} {{uplink}}" }
+        { "refId": "A", "expr": "meraki_uplink_loss_percent", "legendFormat": "{{network_name}} / {{serial}} {{interface}} ({{ip}})" }
       ],
       "fieldConfig": {
         "defaults": { "unit": "percent", "min": 0, "max": 100 },
@@ -139,7 +139,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
       "targets": [
-        { "refId": "A", "expr": "meraki_uplink_latency_seconds", "legendFormat": "{{serial}} {{uplink}}" }
+        { "refId": "A", "expr": "meraki_uplink_latency_seconds", "legendFormat": "{{network_name}} / {{serial}} {{interface}} ({{ip}})" }
       ],
       "fieldConfig": {
         "defaults": { "unit": "s", "min": 0 },
@@ -164,7 +164,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
       "targets": [
-        { "refId": "A", "expr": "meraki_wireless_channel_utilization_percent{kind=\"total\"}", "legendFormat": "{{serial}} {{band}}" }
+        { "refId": "A", "expr": "meraki_wireless_channel_utilization_percent{kind=\"total\"}", "legendFormat": "{{network_name}} / {{serial}} {{band}}" }
       ],
       "fieldConfig": {
         "defaults": { "unit": "percent", "min": 0, "max": 100 },

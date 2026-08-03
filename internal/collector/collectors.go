@@ -12,10 +12,21 @@ import (
 
 const (
 	// apiUsageWindow is the lookback for the org-wide API request overview.
-	apiUsageWindow = 24 * time.Hour
+	apiUsageWindow      = 24 * time.Hour
+	orgClientsMinWindow = 24 * time.Hour
 	// msPerSecond converts the API's millisecond latencies to seconds.
 	msPerSecond = 1000.0
 )
+
+// orgClientsWindow returns the timespan to use for the org-wide clients
+// overview: the configured value, floored at orgClientsMinWindow so the org
+// total is never silently zero. A larger configured window is honoured.
+func orgClientsWindow(configured time.Duration) time.Duration {
+	if configured < orgClientsMinWindow {
+		return orgClientsMinWindow
+	}
+	return configured
+}
 
 // stateSet emits one 0/1 series per known state so a missing series never
 // masks an outage; an unknown current state is emitted as an extra series to
@@ -81,7 +92,10 @@ func (e *Exporter) collectUplinks(ctx context.Context, nets map[string]string) (
 				dev.Serial, dev.NetworkID, nets[dev.NetworkID], u.Interface)...)
 		}
 		// Warm-spare HA state rides along in the same API response — no
-		// extra call. A spare whose uplink goes active means failover.
+		// extra call. NOTE: ha.Enabled is false for standalone appliances,
+		// which still report Role "primary" — always pair role queries with
+		// meraki_appliance_ha_enabled. A spare keeps its own uplinks active
+		// while in standby, so "spare has an active uplink" is NOT failover.
 		if ha := dev.HighAvailability; ha != nil {
 			out = append(out, boolMetric(descApplianceHAEnabled, ha.Enabled,
 				dev.Serial, dev.NetworkID, nets[dev.NetworkID]))
@@ -124,7 +138,7 @@ func (e *Exporter) collectUplinks(ctx context.Context, nets map[string]string) (
 func (e *Exporter) collectClients(ctx context.Context, nets map[string]string) ([]prometheus.Metric, error) {
 	var out []prometheus.Metric
 
-	ov, err := e.client.GetOrgClientsOverview(ctx, e.orgID, e.cfg.ClientsTimespan)
+	ov, err := e.client.GetOrgClientsOverview(ctx, e.orgID, orgClientsWindow(e.cfg.ClientsTimespan))
 	if err != nil {
 		return nil, err
 	}
