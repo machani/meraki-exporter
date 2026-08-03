@@ -124,7 +124,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
       "targets": [
-        { "refId": "A", "expr": "meraki_uplink_loss_percent{network_name=~\"$network\"}", "legendFormat": "{{serial}} {{uplink}}" }
+        { "refId": "A", "expr": "meraki_uplink_loss_percent{network_name=~\"$network\"}", "legendFormat": "{{network_name}} / {{serial}} {{interface}} ({{ip}})" }
       ],
       "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] }
     },
@@ -135,7 +135,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
       "targets": [
-        { "refId": "A", "expr": "meraki_uplink_latency_seconds{network_name=~\"$network\"}", "legendFormat": "{{serial}} {{uplink}}" }
+        { "refId": "A", "expr": "meraki_uplink_latency_seconds{network_name=~\"$network\"}", "legendFormat": "{{network_name}} / {{serial}} {{interface}} ({{ip}})" }
       ],
       "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] }
     },
@@ -146,7 +146,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 9, "w": 8, "x": 0, "y": 12 },
       "targets": [
-        { "refId": "A", "expr": "topk(10, meraki_uplink_loss_percent{network_name=~\"$network\"})", "instant": true, "legendFormat": "{{serial}} {{uplink}}" }
+        { "refId": "A", "expr": "topk(10, meraki_uplink_loss_percent{network_name=~\"$network\"})", "instant": true, "legendFormat": "{{network_name}} / {{serial}} {{interface}} ({{ip}})" }
       ],
       "options": { "orientation": "horizontal", "displayMode": "gradient", "reduceOptions": { "calcs": ["lastNotNull"] } },
       "fieldConfig": {
@@ -166,7 +166,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 9, "w": 8, "x": 8, "y": 12 },
       "targets": [
-        { "refId": "A", "expr": "topk(10, meraki_uplink_latency_seconds{network_name=~\"$network\"})", "instant": true, "legendFormat": "{{serial}} {{uplink}}" }
+        { "refId": "A", "expr": "topk(10, meraki_uplink_latency_seconds{network_name=~\"$network\"})", "instant": true, "legendFormat": "{{network_name}} / {{serial}} {{interface}} ({{ip}})" }
       ],
       "options": { "orientation": "horizontal", "displayMode": "gradient", "reduceOptions": { "calcs": ["lastNotNull"] } },
       "fieldConfig": {
@@ -255,11 +255,11 @@
       "id": 15,
       "type": "stat",
       "title": "Warm Spare Failover",
-      "description": "Spare appliances currently passing traffic (an active uplink on a spare means the primary failed over). 0 is healthy.",
+      "description": "HA-enabled primaries with no active uplink — the spare has most likely taken over. 0 is healthy. A spare holding an active uplink is normal standby, not failover.",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 8, "w": 6, "x": 0, "y": 30 },
       "targets": [
-        { "refId": "A", "expr": "count((meraki_appliance_ha_role{role=\"spare\",network_name=~\"$network\"} == 1) and on(serial) (max by (serial) (meraki_uplink_status{status=\"active\"} == 1))) or vector(0)", "instant": true }
+        { "refId": "A", "expr": "count(((meraki_appliance_ha_role{role=\"primary\",network_name=~\"$network\"} == 1) and on(serial) (meraki_appliance_ha_enabled == 1)) unless on(serial) (max by (serial) (meraki_uplink_status{status=\"active\"} == 1))) or vector(0)", "instant": true }
       ],
       "fieldConfig": {
         "defaults": {
@@ -277,7 +277,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 8, "w": 18, "x": 6, "y": 30 },
       "targets": [
-        { "refId": "A", "expr": "meraki_appliance_ha_role{network_name=~\"$network\"} == 1", "instant": true, "format": "table" }
+        { "refId": "A", "expr": "(meraki_appliance_ha_role{network_name=~\"$network\"} == 1) and on(serial) (meraki_appliance_ha_enabled == 1)", "instant": true, "format": "table" }
       ],
       "transformations": [
         {

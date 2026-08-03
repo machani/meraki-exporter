@@ -37,32 +37,37 @@ groups:
           description: 'Appliance uplink in network {{ $labels.network_name }} has been in failed state for 5 minutes.'
 
       - alert: MerakiUplinkHighLoss
-        expr: meraki_uplink_loss_percent > 5
+        expr: min by (serial, network_id, network_name, interface) (meraki_uplink_loss_percent) > 5
         for: 15m
         labels:
           severity: warning
         annotations:
-          summary: 'Uplink {{ $labels.uplink }} on {{ $labels.serial }} has {{ $value | printf "%.1f" }}% packet loss'
-          description: 'Sustained packet loss above 5% for 15 minutes in network {{ $labels.network_name }} (uplink IP {{ $labels.ip }}).'
+          summary: 'Uplink {{ $labels.interface }} on {{ $labels.serial }} has {{ $value | printf "%.1f" }}% packet loss to every monitored destination'
+          description: 'Sustained packet loss above 5% for 15 minutes in network {{ $labels.network_name }}, across all probe destinations. Per-destination detail is on the WAN dashboard.'
 
       - alert: MerakiUplinkHighLatency
-        expr: meraki_uplink_latency_seconds > 0.3
+        expr: min by (serial, network_id, network_name, interface) (meraki_uplink_latency_seconds) > 0.3
         for: 15m
         labels:
           severity: warning
         annotations:
-          summary: 'Uplink {{ $labels.uplink }} on {{ $labels.serial }} has {{ $value | humanizeDuration }} latency'
-          description: 'Sustained latency above 300ms for 15 minutes in network {{ $labels.network_name }} (uplink IP {{ $labels.ip }}).'
-      - alert: MerakiWarmSpareActive
-        # A spare appliance with an active uplink is passing traffic — the
-        # primary has failed over. Matches the client's HA MX deployments.
-        expr: (meraki_appliance_ha_role{role="spare"} == 1) and on(serial) (max by (serial) (meraki_uplink_status{status="active"} == 1))
+          summary: 'Uplink {{ $labels.interface }} on {{ $labels.serial }} has {{ $value | humanizeDuration }} latency to every monitored destination'
+          description: 'Sustained latency above 300ms for 15 minutes in network {{ $labels.network_name }}, across all probe destinations. Per-destination detail is on the WAN dashboard.'
+      - alert: MerakiWarmSpareFailover
+        # Fires when an HA-enabled PRIMARY has no active uplink — it is no
+        # longer passing traffic, so the spare has taken over.
+        #
+        # Do NOT key this on the spare having an active uplink: a healthy warm
+        # spare keeps its own uplinks active while in standby, so that fires
+        # on every healthy pair. The ha_enabled guard matters too — standalone
+        # appliances also report role="primary" with enabled=false.
+        expr: ((meraki_appliance_ha_role{role="primary"} == 1) and on(serial) (meraki_appliance_ha_enabled == 1)) unless on(serial) (max by (serial) (meraki_uplink_status{status="active"} == 1))
         for: 5m
         labels:
           severity: critical
         annotations:
-          summary: 'Warm spare {{ $labels.serial }} is passing traffic (failover active)'
-          description: 'Spare MX in network {{ $labels.network_name }} has had an active uplink for 5 minutes — check the primary appliance. Requires the uplinks collector (HA state rides along at no extra API cost).'
+          summary: 'HA primary {{ $labels.serial }} has no active uplink (warm spare likely active)'
+          description: 'Primary MX in network {{ $labels.network_name }} has had no active uplink for 5 minutes — the warm spare has most likely taken over. Requires the uplinks collector (HA state rides along at no extra API cost).'
 
   - name: meraki-vpn
     rules:

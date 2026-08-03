@@ -125,3 +125,22 @@ func TestCountAlertsBySeverityCategory(t *testing.T) {
 		t.Errorf("countAlertsBySeverityCategory(nil): got %v, want empty map", got)
 	}
 }
+
+func TestOrgClientsWindow(t *testing.T) {
+	cases := []struct {
+		name       string
+		configured time.Duration
+		want       time.Duration
+	}{
+		{"default 1h is floored to 24h", time.Hour, 24 * time.Hour},
+		{"exactly 24h is unchanged", 24 * time.Hour, 24 * time.Hour},
+		{"larger window is honoured", 7 * 24 * time.Hour, 7 * 24 * time.Hour},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := orgClientsWindow(tc.configured); got != tc.want {
+				t.Errorf("orgClientsWindow(%v): got %v, want %v", tc.configured, got, tc.want)
+			}
+		})
+	}
+}

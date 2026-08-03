@@ -82,7 +82,7 @@ Every option is available as a flag and an environment variable (env vars are pr
 | `SCRAPE_INTERVAL` | `--scrape.interval` | `120s` | Fast-group poll interval (min 30s) |
 | `SLOW_SCRAPE_INTERVAL` | `--scrape.slow-interval` | `15m` | Slow-group poll interval (must be >= fast) |
 | `MERAKI_TIMEOUT` | `--meraki.timeout` | `30s` | Per-request timeout |
-| `CLIENTS_TIMESPAN` | `--clients.timespan` | `1h` | Lookback for client counts |
+| `CLIENTS_TIMESPAN` | `--clients.timespan` | `1h` | Lookback for client counts. Applies to per-network counts; the org-wide total always uses at least 24h, because Meraki's org endpoint aggregates daily and returns 0 below that |
 | `COLLECTORS_ENABLED` | `--collectors.enabled` | all | Comma-separated collector list |
 | `COLLECTORS_SLOW` | `--collectors.slow` | `clients,licenses,apiusage,alerts` | Collectors polled at the slow interval |
 | `LOG_LEVEL` | `--log.level` | `info` | `info` or `debug` |
