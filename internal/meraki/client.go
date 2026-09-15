@@ -126,11 +126,21 @@ func (c *Client) do(ctx context.Context, rawURL string) (body []byte, next strin
 // doOnce performs a single attempt. retryAfter semantics:
 // -1 = do not retry; 0 = retry with default backoff; >0 = retry after this duration.
 func (c *Client) doOnce(ctx context.Context, rawURL string) (body []byte, next string, retryAfter time.Duration, err error) {
-	// Rate limit: serialize and space out requests.
+	// Rate limit: serialize and space out requests. The wait is interruptible
+	// — sleeping through it would make shutdown lag by up to minRequestGap per
+	// in-flight request. The token must go back on the cancel path too, or the
+	// next caller blocks on an empty channel forever.
 	select {
 	case tok := <-c.throttle:
 		if gap := time.Since(c.lastReq); gap < minRequestGap {
-			time.Sleep(minRequestGap - gap)
+			timer := time.NewTimer(minRequestGap - gap)
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				timer.Stop()
+				c.throttle <- tok
+				return nil, "", -1, ctx.Err()
+			}
 		}
 		c.lastReq = time.Now()
 		c.throttle <- tok
@@ -289,6 +299,16 @@ func (c *Client) GetApplianceVPNStatuses(ctx context.Context, orgID string) ([]A
 // GetSwitchPortStatuses paginates switch port statuses. Unlike the other
 // list endpoints, each page body is wrapped as {items, meta} rather than a
 // bare array, so it cannot use decodePages.
+// GetVPNStats returns per-network site-to-site VPN statistics over the given
+// timespan. Paginated, and capped at the same page size as the vpn statuses
+// endpoint. Usage figures are kilobytes, as strings — see VPNStats.
+func (c *Client) GetVPNStats(ctx context.Context, orgID string, timespan time.Duration) ([]VPNStats, error) {
+	var out []VPNStats
+	q := url.Values{"timespan": {strconv.Itoa(int(timespan.Seconds()))}}
+	err := c.getPaginated(ctx, "/organizations/"+orgID+"/appliance/vpn/stats", q, perPageVPNStatuses, decodePages(&out))
+	return out, err
+}
+
 func (c *Client) GetSwitchPortStatuses(ctx context.Context, orgID string) ([]SwitchPortsBySwitch, error) {
 	var out []SwitchPortsBySwitch
 	decode := func(b []byte) error {
@@ -328,6 +348,18 @@ func (c *Client) GetUplinksLossAndLatency(ctx context.Context, orgID string) ([]
 	q := url.Values{"timespan": {"300"}} // last 5 minutes
 	err := c.get(ctx, "/organizations/"+orgID+"/devices/uplinksLossAndLatency", q, &ll)
 	return ll, err
+}
+
+// GetUplinksUsageByNetwork returns per-network uplink usage over the
+// given timespan, in one org-wide call. The response is a windowed sum, so the
+// caller decides the window; see collectUplinks for why it tracks the poll
+// interval. Sent/received are bytes. Not paginated: the API reference lists no
+// perPage/startingAfter for this endpoint, so a plain get is correct.
+func (c *Client) GetUplinksUsageByNetwork(ctx context.Context, orgID string, timespan time.Duration) ([]UplinkUsageByNetwork, error) {
+	var usage []UplinkUsageByNetwork
+	q := url.Values{"timespan": {strconv.Itoa(int(timespan.Seconds()))}}
+	err := c.get(ctx, "/organizations/"+orgID+"/appliance/uplinks/usage/byNetwork", q, &usage)
+	return usage, err
 }
 
 func (c *Client) GetOrgClientsOverview(ctx context.Context, orgID string, timespan time.Duration) (*OrgClientsOverview, error) {
