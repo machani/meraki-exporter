@@ -319,6 +319,38 @@ func TestGetApplianceUplinkStatusesHA(t *testing.T) {
 	}
 }
 
+// TestGetUplinksUsageByNetwork checks the timespan reaches the API as
+// seconds and that the response decodes, including the repeated
+// network+interface rows an HA pair produces — the collector relies on both
+// rows arriving so it can sum them.
+func TestGetUplinksUsageByNetwork(t *testing.T) {
+	var gotTimespan string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotTimespan = r.URL.Query().Get("timespan")
+		_, _ = fmt.Fprint(w, `[{"networkId":"N_1","name":"HQ","byUplink":[
+			{"serial":"MX1","interface":"wan1","sent":100.5,"received":200},
+			{"serial":"MX2","interface":"wan1","sent":50,"received":25}]}]`)
+	}))
+	defer srv.Close()
+
+	usage, err := testClient(t, srv.URL).GetUplinksUsageByNetwork(context.Background(), "O_1", 10*time.Minute)
+	if err != nil {
+		t.Fatalf("GetUplinksUsageByNetwork: %v", err)
+	}
+	if gotTimespan != "600" {
+		t.Errorf("timespan query: got %q, want 600", gotTimespan)
+	}
+	if len(usage) != 1 || usage[0].NetworkID != "N_1" || usage[0].Name != "HQ" {
+		t.Fatalf("network: got %+v", usage)
+	}
+	if len(usage[0].ByUplink) != 2 {
+		t.Fatalf("byUplink: got %d rows, want 2 (one per appliance in the HA pair)", len(usage[0].ByUplink))
+	}
+	if got := usage[0].ByUplink[0]; got.Serial != "MX1" || got.Interface != "wan1" || got.Sent != 100.5 {
+		t.Errorf("first uplink row: got %+v", got)
+	}
+}
+
 // TestPerPageWithinEndpointCaps guards against the regression where every
 // paginated endpoint sent perPage=1000: Meraki rejects that with HTTP 400 on
 // the vpn (max 300), alerts (max 300), switch-ports (max 20), and sensor
@@ -370,5 +402,87 @@ func TestPerPageWithinEndpointCaps(t *testing.T) {
 		if n < lohi[0] || n > lohi[1] {
 			t.Errorf("%s: perPage=%d outside Meraki's accepted range [%d, %d]", path, n, lohi[0], lohi[1])
 		}
+	}
+}
+
+// TestThrottleWaitIsInterruptible covers the rate limiter's cancel path. The
+// property that actually matters is the second assertion: the throttle token
+// must go back on the channel when a wait is abandoned, or every later request
+// blocks on an empty channel forever and the exporter wedges.
+//
+// The timing assertion has ~130ms of slack against a 20ms deadline; a
+// non-interruptible wait would take the full minRequestGap. If it ever flakes
+// on a heavily loaded runner, widen the bound rather than deleting it.
+func TestThrottleWaitIsInterruptible(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprint(w, `[]`)
+	}))
+	defer srv.Close()
+	c := testClient(t, srv.URL)
+
+	// Prime lastReq so the next call has to wait out minRequestGap.
+	if _, err := c.GetOrganizations(context.Background()); err != nil {
+		t.Fatalf("priming request: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if _, err := c.GetOrganizations(ctx); err == nil {
+		t.Error("expected an error from the cancelled request")
+	}
+	if elapsed := time.Since(start); elapsed >= minRequestGap-50*time.Millisecond {
+		t.Errorf("cancelled request took %v; the throttle wait is not interruptible", elapsed)
+	}
+
+	if _, err := c.GetOrganizations(context.Background()); err != nil {
+		t.Errorf("request after a cancelled wait failed, throttle token was stranded: %v", err)
+	}
+}
+
+// TestGetVPNStats pins the two traps in this endpoint's shape, both confirmed
+// against the live API on 2026-08-13: the usage figures are kilobytes (the
+// appliance uplink usage endpoint reports bytes, so the two disagree) and they
+// arrive as JSON strings. Without the ,string tags the response does not
+// unmarshal at all, so this test is the difference between working code and a
+// collector that silently reports nothing.
+func TestGetVPNStats(t *testing.T) {
+	var gotTimespan, gotPerPage string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotTimespan = r.URL.Query().Get("timespan")
+		gotPerPage = r.URL.Query().Get("perPage")
+		_, _ = fmt.Fprint(w, `[
+			{"networkId":"N_1","networkName":"HQ","merakiVpnPeers":[
+				{"networkId":"N_2","networkName":"DC01","usageSummary":{"sentInKilobytes":"29","receivedInKilobytes":"11"}},
+				{"networkId":"N_3","networkName":"Branch"}
+			]}
+		]`)
+	}))
+	defer srv.Close()
+
+	stats, err := testClient(t, srv.URL).GetVPNStats(context.Background(), "O_1", 5*time.Minute)
+	if err != nil {
+		t.Fatalf("GetVPNStats: %v", err)
+	}
+	if gotTimespan != "300" {
+		t.Errorf("timespan query: got %q, want 300", gotTimespan)
+	}
+	if gotPerPage != "300" {
+		t.Errorf("perPage: got %q, want 300 (this endpoint caps below perPageDefault)", gotPerPage)
+	}
+	if len(stats) != 1 || len(stats[0].MerakiVPNPeers) != 2 {
+		t.Fatalf("decoded: %+v", stats)
+	}
+	peer := stats[0].MerakiVPNPeers[0]
+	if peer.UsageSummary == nil {
+		t.Fatal("usageSummary did not decode; the ,string tags are the usual cause")
+	}
+	if peer.UsageSummary.SentInKilobytes != 29 || peer.UsageSummary.ReceivedInKilobytes != 11 {
+		t.Errorf("usage: got %+v, want sent 29 / received 11", *peer.UsageSummary)
+	}
+	// A peer with no usageSummary at all must decode to nil rather than zeroes,
+	// so the collector can skip it instead of reporting a fake 0 bytes.
+	if stats[0].MerakiVPNPeers[1].UsageSummary != nil {
+		t.Error("peer without usageSummary should decode to nil")
 	}
 }

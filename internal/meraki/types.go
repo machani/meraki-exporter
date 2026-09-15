@@ -1,6 +1,9 @@
 package meraki
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // ---- API response types ----
 
@@ -22,6 +25,18 @@ type Device struct {
 	NetworkID   string `json:"networkId"`
 	Firmware    string `json:"firmware"`
 	ProductType string `json:"productType"`
+
+	// Lat/Lng are json.Number rather than float64 so an ABSENT coordinate
+	// stays empty instead of becoming 0 — a device with no position would
+	// otherwise be placed at 0,0 in the Atlantic rather than left off the map.
+	// json.Number also avoids reformatting the value the API sent.
+	//
+	// The API reference documents these as JSON numbers. If Meraki ever sends
+	// them quoted, decoding fails and the devices collector reports failure
+	// loudly (see MerakiCollectorFailing) rather than degrading quietly.
+	Lat     json.Number `json:"lat"`
+	Lng     json.Number `json:"lng"`
+	Address string      `json:"address"`
 }
 
 type DeviceAvailability struct {
@@ -41,13 +56,35 @@ type ApplianceUplinkStatus struct {
 	// it. Role is the appliance's current warm-spare role.
 	HighAvailability *struct {
 		Enabled bool   `json:"enabled"`
-		Role    string `json:"role"` // primary, spare
+		Role    string `json:"role"` // primary, spare; standalone units send "primary" with enabled=false
 	} `json:"highAvailability"`
 	Uplinks []struct {
 		Interface string `json:"interface"`
 		Status    string `json:"status"` // active, ready, failed, not connected
 		IP        string `json:"ip"`
 	} `json:"uplinks"`
+}
+
+// UplinkUsageByNetwork is one network's uplink usage over the requested
+// timespan.
+//
+// Sent and Received are already **bytes** (confirmed against the published API
+// reference 2026-08-13), so no unit conversion is needed — unusual for this
+// family of endpoints, several of which report kilobytes.
+//
+// The shape does force one thing on the collector: a row carries a serial, so
+// an HA pair reports the same network+interface twice. Consumers must
+// aggregate rather than assume the pair is unique, or the registry rejects the
+// duplicate series.
+type UplinkUsageByNetwork struct {
+	NetworkID string `json:"networkId"`
+	Name      string `json:"name"`
+	ByUplink  []struct {
+		Serial    string  `json:"serial"`
+		Interface string  `json:"interface"` // wan1, wan2, cellular
+		Sent      float64 `json:"sent"`      // bytes over the timespan
+		Received  float64 `json:"received"`  // bytes over the timespan
+	} `json:"byUplink"`
 }
 
 type UplinkLossLatency struct {
@@ -116,6 +153,33 @@ type ApplianceVPNStatus struct {
 		Name         string `json:"name"`
 		Reachability string `json:"reachability"` // reachable, unreachable
 	} `json:"thirdPartyVpnPeers"`
+}
+
+// VPNStats is one network's site-to-site VPN statistics over the requested
+// timespan, from /organizations/{orgId}/appliance/vpn/stats.
+//
+// Two traps in this shape:
+//
+//   - the usage figures are **kilobytes**, unlike the appliance uplink usage
+//     endpoint which reports bytes. Do not carry an assumption between the
+//     two; check each endpoint.
+//   - they arrive as JSON **strings** ("29", not 29), hence the ,string tags.
+//     Without them the response does not unmarshal at all.
+//
+// The probe saw only merakiVpnPeers populated; whether third-party peers ever
+// appear here is unconfirmed, so the collector labels what it finds as meraki
+// peers and does not invent a third-party branch.
+type VPNStats struct {
+	NetworkID      string `json:"networkId"`
+	NetworkName    string `json:"networkName"`
+	MerakiVPNPeers []struct {
+		NetworkID    string `json:"networkId"`
+		NetworkName  string `json:"networkName"`
+		UsageSummary *struct {
+			SentInKilobytes     float64 `json:"sentInKilobytes,string"`
+			ReceivedInKilobytes float64 `json:"receivedInKilobytes,string"`
+		} `json:"usageSummary"`
+	} `json:"merakiVpnPeers"`
 }
 
 type SwitchPortsBySwitch struct {

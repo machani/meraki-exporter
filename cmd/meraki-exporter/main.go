@@ -29,8 +29,8 @@ import (
 )
 
 // version is overridden at build time via
-// -ldflags "-X main.version=<version>". The default deliberately reads as a
-// non-release so unstamped local builds are obvious.
+// -ldflags "-X main.version=<version>". The default
+// deliberately reads as a non-release so unstamped local builds are obvious.
 var version = "dev"
 
 // shutdownTimeout bounds the graceful HTTP shutdown after SIGTERM/interrupt.
@@ -77,6 +77,13 @@ func run() int {
 		"fast_collectors", fastNames,
 		"slow_collectors", slowNames,
 		"proxy_configured", cfg.ProxyURL != "")
+
+	// Logged after the startup line so the resolved collector groups above give
+	// them context. Warnings rather than errors: both configurations they
+	// describe are legal, and an existing deployment must not fail to start.
+	for _, w := range cfg.Warnings {
+		logger.Warn(w)
+	}
 
 	// baseReg holds process/runtime metrics and the exporter's own API
 	// request counter; it is served on /metrics and /metrics/fast.
@@ -147,9 +154,16 @@ func run() int {
 </body></html>`))
 	})
 
+	// Timeouts bound a slow or stalled client. WriteTimeout is generous
+	// because /metrics is served from cache and is small (hundreds of KB even
+	// for a large org), so it only ever trips on a genuinely stuck connection,
+	// never on a legitimate scrape — Prometheus defaults to a 10s scrape
+	// timeout of its own.
 	srv := &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	go func() {

@@ -33,29 +33,44 @@ var (
 	// here without a code change.
 	vpnPeerStates    = []string{"reachable", "unreachable"}
 	switchPortStates = []string{"Connected", "Disconnected", "Disabled"}
-	haRoles          = []string{"primary", "spare"}
+	haRoles          = []string{"primary", "spare", "standalone"}
 
 	descDeviceInfo = prometheus.NewDesc("meraki_device_info",
-		"Static device metadata; value is always 1.",
-		[]string{"serial", "name", "model", "mac", "firmware", "product_type", "network_id", "network_name"}, nil)
+		"Static device metadata; value is always 1. lat/lng/address are empty for devices "+
+			"that have not been placed on the Meraki dashboard map — empty, not 0,0.",
+		[]string{"serial", "name", "model", "mac", "firmware", "product_type", "network_id", "network_name",
+			"lat", "lng", "address"}, nil)
 	descDeviceStatus = prometheus.NewDesc("meraki_device_status",
 		"Device status state set: 1 for the current status, 0 otherwise.",
 		[]string{"serial", "name", "network_id", "network_name", "status"}, nil)
 
 	descUplinkStatus = prometheus.NewDesc("meraki_uplink_status",
 		"Appliance uplink status state set: 1 for the current status, 0 otherwise.",
-		[]string{"serial", "network_id", "network_name", "interface", "status"}, nil)
+		[]string{"serial", "network_id", "network_name", "interface", "role", "status"}, nil)
 	descUplinkLossPercent = prometheus.NewDesc("meraki_uplink_loss_percent",
 		"Uplink packet loss percentage, averaged over the last 5 minutes.",
-		[]string{"serial", "network_id", "network_name", "interface", "ip"}, nil)
+		[]string{"serial", "network_id", "network_name", "interface", "ip", "role"}, nil)
 	descUplinkLatencySeconds = prometheus.NewDesc("meraki_uplink_latency_seconds",
 		"Uplink latency in seconds, averaged over the last 5 minutes.",
-		[]string{"serial", "network_id", "network_name", "interface", "ip"}, nil)
+		[]string{"serial", "network_id", "network_name", "interface", "ip", "role"}, nil)
+	descUplinkSentBytes = prometheus.NewDesc("meraki_uplink_sent_bytes",
+		"Bytes sent over the uplink during the window ending at the last poll. Windowed sum, NOT a counter: "+
+			"divide by meraki_uplink_usage_window_seconds for throughput; rate() would be meaningless on it.",
+		[]string{"network_id", "network_name", "interface"}, nil)
+	descUplinkReceivedBytes = prometheus.NewDesc("meraki_uplink_received_bytes",
+		"Bytes received over the uplink during the window ending at the last poll. Windowed sum, NOT a counter: "+
+			"divide by meraki_uplink_usage_window_seconds for throughput; rate() would be meaningless on it.",
+		[]string{"network_id", "network_name", "interface"}, nil)
+	descUplinkUsageWindow = prometheus.NewDesc("meraki_uplink_usage_window_seconds",
+		"Length of the window that meraki_uplink_sent_bytes and _received_bytes cover. Equals the poll "+
+			"interval of the group running the uplinks collector, so samples neither overlap nor leave gaps.",
+		nil, nil)
+
 	descApplianceHAEnabled = prometheus.NewDesc("meraki_appliance_ha_enabled",
 		"1 if warm spare high availability is enabled for the appliance, 0 otherwise. Only emitted for appliances reporting HA state.",
 		[]string{"serial", "network_id", "network_name"}, nil)
 	descApplianceHARole = prometheus.NewDesc("meraki_appliance_ha_role",
-		"Appliance warm-spare role state set: 1 for the current role, 0 otherwise. Only meaningful where meraki_appliance_ha_enabled is 1.",
+		"Appliance warm-spare role state set: 1 for the current role, 0 otherwise. Appliances with HA disabled report standalone, not primary.",
 		[]string{"serial", "network_id", "network_name", "role"}, nil)
 
 	descOrgClients = prometheus.NewDesc("meraki_org_clients",
@@ -85,6 +100,19 @@ var (
 	descOrgAPIResponses = prometheus.NewDesc("meraki_org_api_response_codes",
 		"Org-wide Meraki API responses by status code over the last 24 hours (all API consumers).",
 		[]string{"code"}, nil)
+
+	descVPNPeerSentBytes = prometheus.NewDesc("meraki_vpn_peer_sent_bytes",
+		"Bytes sent to the VPN peer during the window ending at the last poll. Windowed sum, NOT a counter: "+
+			"divide by meraki_vpn_usage_window_seconds for throughput; rate() would be meaningless on it.",
+		[]string{"network_id", "network_name", "peer_type", "peer_name"}, nil)
+	descVPNPeerReceivedBytes = prometheus.NewDesc("meraki_vpn_peer_received_bytes",
+		"Bytes received from the VPN peer during the window ending at the last poll. Windowed sum, NOT a counter: "+
+			"divide by meraki_vpn_usage_window_seconds for throughput; rate() would be meaningless on it.",
+		[]string{"network_id", "network_name", "peer_type", "peer_name"}, nil)
+	descVPNUsageWindow = prometheus.NewDesc("meraki_vpn_usage_window_seconds",
+		"Length of the window that meraki_vpn_peer_sent_bytes and _received_bytes cover. Equals the poll "+
+			"interval of the group running the vpn collector.",
+		nil, nil)
 
 	descVPNPeerStatus = prometheus.NewDesc("meraki_vpn_peer_status",
 		"Site-to-site VPN peer reachability state set: 1 for the current state, 0 otherwise.",
@@ -156,6 +184,17 @@ type Exporter struct {
 	orgID    string
 	orgName  string
 
+	// netsErr records a failed network listing for the current poll cycle.
+	// Collectors that only use the map for label values degrade to empty
+	// labels, which is tolerable; collectClients uses it as its work list, so
+	// for that one an empty map means no data at all and it must fail loudly.
+	netsErr error
+
+	// orgResolved records that resolveOrg has done all it usefully can, so a
+	// key that cannot see its configured org does not re-list organizations
+	// on every poll forever.
+	orgResolved bool
+
 	mu     sync.RWMutex
 	cache  []prometheus.Metric
 	primed bool
@@ -220,6 +259,9 @@ func (e *Exporter) resolveOrg(ctx context.Context) error {
 			return nil
 		}
 	}
+	// Logged once, not once per poll: the caller marks resolution done. The
+	// org name stays empty and API calls against the id will fail, which the
+	// per-collector success metrics surface.
 	e.logger.Warn("configured org ID not visible to this API key", "org_id", e.orgID)
 	return nil
 }
@@ -263,9 +305,14 @@ func (e *Exporter) poll(ctx context.Context) {
 
 	if len(e.names) > 0 {
 		var resolveErr error
-		if e.orgID == "" || e.orgName == "" {
+		if !e.orgResolved {
 			if resolveErr = e.resolveOrg(ctx); resolveErr != nil {
 				e.logger.Error("failed to resolve organization", "err", resolveErr)
+			} else {
+				// Success, or a configured org the key cannot see: either way
+				// re-listing organizations next poll would change nothing.
+				// Only a hard failure (API down, bad key) is worth retrying.
+				e.orgResolved = true
 			}
 		}
 
@@ -289,9 +336,11 @@ func (e *Exporter) poll(ctx context.Context) {
 
 			// Networks map (id -> name) is shared by several collectors.
 			nets := map[string]string{}
+			e.netsErr = nil
 			if e.needsNetworks() {
 				if networks, err := e.client.GetNetworks(ctx, e.orgID); err != nil {
-					e.logger.Warn("failed to list networks; network_name labels will be empty", "err", err)
+					e.netsErr = err
+					e.logger.Warn("failed to list networks; network_name labels will be empty and the clients collector will fail", "err", err)
 				} else {
 					for _, n := range networks {
 						nets[n.ID] = n.Name
