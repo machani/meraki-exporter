@@ -2,7 +2,7 @@ module github.com/machani/meraki-exporter
 
 go 1.25.0
 
-toolchain go1.26.5
+toolchain go1.26.6
 
 require (
 	github.com/prometheus/client_golang v1.20.5
