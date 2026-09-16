@@ -6,8 +6,8 @@
   "schemaVersion": 39,
   "editable": true,
   "graphTooltip": 1,
-  "time": { "from": "now-6h", "to": "now" },
-  "refresh": "1m",
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "",
   "templating": {
     "list": [
       {
@@ -16,6 +16,33 @@
         "label": "Data source",
         "query": "prometheus",
         "current": {}
+      },
+      {
+        "name": "network",
+        "type": "query",
+        "label": "Network",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "query": { "query": "label_values(meraki_device_status, network_name)", "refId": "A" },
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "current": {}
+      },
+      {
+        "name": "status",
+        "type": "custom",
+        "label": "Status",
+        "description": "Filters the not-online device table only, not the tiles or the over-time graph. Set by clicking one of the Alerting / Offline / Dormant tiles; All lists every not-online device.",
+        "query": "alerting,offline,dormant",
+        "options": [
+          { "text": "alerting", "value": "alerting", "selected": false },
+          { "text": "offline", "value": "offline", "selected": false },
+          { "text": "dormant", "value": "dormant", "selected": false }
+        ],
+        "multi": true,
+        "includeAll": true,
+        "allValue": "alerting|offline|dormant",
+        "current": { "selected": true, "text": "All", "value": "$__all" }
       }
     ]
   },
@@ -27,7 +54,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
       "targets": [
-        { "refId": "A", "expr": "count(meraki_device_status{status=\"online\"} == 1) or vector(0)", "instant": true }
+        { "refId": "A", "expr": "count(meraki_device_status{status=\"online\",network_name=~\"$network\"} == 1) or vector(0)", "instant": true }
       ],
       "fieldConfig": {
         "defaults": {
@@ -44,10 +71,13 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
       "targets": [
-        { "refId": "A", "expr": "count(meraki_device_status{status=\"alerting\"} == 1) or vector(0)", "instant": true }
+        { "refId": "A", "expr": "count(meraki_device_status{status=\"alerting\",network_name=~\"$network\"} == 1) or vector(0)", "instant": true }
       ],
       "fieldConfig": {
         "defaults": {
+          "links": [
+            { "title": "Show these devices", "url": "/d/meraki-overview?viewPanel=11&${__url_time_range}&${network:queryparam}&var-status=alerting", "targetBlank": false }
+          ],
           "unit": "none",
           "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 1 } ] }
         },
@@ -61,10 +91,13 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
       "targets": [
-        { "refId": "A", "expr": "count(meraki_device_status{status=\"offline\"} == 1) or vector(0)", "instant": true }
+        { "refId": "A", "expr": "count(meraki_device_status{status=\"offline\",network_name=~\"$network\"} == 1) or vector(0)", "instant": true }
       ],
       "fieldConfig": {
         "defaults": {
+          "links": [
+            { "title": "Show these devices", "url": "/d/meraki-overview?viewPanel=11&${__url_time_range}&${network:queryparam}&var-status=offline", "targetBlank": false }
+          ],
           "unit": "none",
           "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] }
         },
@@ -75,6 +108,7 @@
       "id": 4,
       "type": "stat",
       "title": "Clients (org, lookback window)",
+      "description": "Not affected by the Network filter: meraki_org_clients carries no network labels at all, so this is always the organisation-wide total. It also uses a window of at least 24h (a Meraki constraint), so it reads higher than the per-site counts. Per-network numbers are in the Clients per Network panel below.",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
       "targets": [
@@ -86,6 +120,7 @@
       "id": 5,
       "type": "stat",
       "title": "License Days Remaining",
+      "description": "Not affected by the Network filter: co-term licensing is an organisation-level property, not a per-site one.",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
       "targets": [
@@ -104,6 +139,7 @@
       "id": 6,
       "type": "stat",
       "title": "Last Poll Age (fast group)",
+      "description": "Not affected by the Network filter: this is exporter health, not Meraki data. It shows how long ago the fast poll group last completed for the whole organisation.",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
       "targets": [
@@ -125,7 +161,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
       "targets": [
-        { "refId": "A", "expr": "meraki_uplink_loss_percent", "legendFormat": "{{network_name}} / {{serial}} {{interface}} ({{ip}})" }
+        { "refId": "A", "expr": "meraki_uplink_loss_percent{network_name=~\"$network\"}", "legendFormat": "{{network_name}} {{role}} {{interface}} ({{ip}}) / {{serial}}" }
       ],
       "fieldConfig": {
         "defaults": { "unit": "percent", "min": 0, "max": 100 },
@@ -139,7 +175,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
       "targets": [
-        { "refId": "A", "expr": "meraki_uplink_latency_seconds", "legendFormat": "{{network_name}} / {{serial}} {{interface}} ({{ip}})" }
+        { "refId": "A", "expr": "meraki_uplink_latency_seconds{network_name=~\"$network\"}", "legendFormat": "{{network_name}} {{role}} {{interface}} ({{ip}}) / {{serial}}" }
       ],
       "fieldConfig": {
         "defaults": { "unit": "s", "min": 0 },
@@ -147,13 +183,28 @@
       }
     },
     {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Uplink Throughput by Site",
+      "description": "One line per site, in both directions, derived from the windowed byte counts divided by meraki_uplink_usage_window_seconds. Sites are drawn separately so two can be compared - an earlier version summed them into a single figure, which made comparison impossible. For a breakdown by WAN interface within a site, use the WAN dashboard: its traffic panels are per uplink. The underlying metrics are sums over the poll window, NOT counters; rate() on them would be meaningless.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+      "targets": [
+        { "refId": "A", "expr": "sum by (network_name) (meraki_uplink_sent_bytes{network_name=~\"$network\"} / on(job, instance) group_left() meraki_uplink_usage_window_seconds)", "legendFormat": "{{network_name}} sent" },
+        { "refId": "B", "expr": "sum by (network_name) (meraki_uplink_received_bytes{network_name=~\"$network\"} / on(job, instance) group_left() meraki_uplink_usage_window_seconds)", "legendFormat": "{{network_name}} received" }
+      ],
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"], "sortBy": "Max", "sortDesc": true } },
+      "fieldConfig": { "defaults": { "unit": "Bps", "min": 0, "custom": { "fillOpacity": 10 } }, "overrides": [] }
+    },
+    {
       "id": 9,
       "type": "timeseries",
       "title": "Clients per Network",
+      "description": "Per-network client counts over the lookback window set by CLIENTS_TIMESPAN. The clients collector is in the SLOW poll group, so this refreshes every SLOW_SCRAPE_INTERVAL - 30m on a 5m/30m profile. On the dashboard's default 1h range that is roughly two updates, so a flat line here means the data has not been re-collected yet, NOT that nothing is happening. Widen the time range to see a trend. meraki_exporter_last_poll_timestamp_seconds{group=\"slow\"} shows when it last ran. The org-wide tile above uses a 24h window instead, which is why it reads higher than these summed.",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
       "targets": [
-        { "refId": "A", "expr": "meraki_network_clients", "legendFormat": "{{network_name}}" }
+        { "refId": "A", "expr": "meraki_network_clients{network_name=~\"$network\"}", "legendFormat": "{{network_name}}" }
       ],
       "fieldConfig": { "defaults": { "unit": "none", "min": 0 }, "overrides": [] }
     },
@@ -162,9 +213,9 @@
       "type": "timeseries",
       "title": "Wireless Channel Utilization (total)",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
       "targets": [
-        { "refId": "A", "expr": "meraki_wireless_channel_utilization_percent{kind=\"total\"}", "legendFormat": "{{network_name}} / {{serial}} {{band}}" }
+        { "refId": "A", "expr": "meraki_wireless_channel_utilization_percent{kind=\"total\",network_name=~\"$network\"}", "legendFormat": "{{network_name}} {{band}} / {{serial}}" }
       ],
       "fieldConfig": {
         "defaults": { "unit": "percent", "min": 0, "max": 100 },
@@ -175,16 +226,17 @@
       "id": 11,
       "type": "table",
       "title": "Devices Not Online",
+      "description": "Clicking the Devices Alerting or Devices Offline tile narrows this table to that status via the Status variable; on All it lists every not-online device.",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 28 },
       "targets": [
-        { "refId": "A", "expr": "meraki_device_status{status=~\"offline|alerting|dormant\"} == 1", "instant": true, "format": "table" }
+        { "refId": "A", "expr": "meraki_device_status{status=~\"$status\",network_name=~\"$network\"} == 1", "instant": true, "format": "table" }
       ],
       "transformations": [
         {
           "id": "organize",
           "options": {
-            "excludeByName": { "Time": true, "Value": true, "__name__": true, "job": true, "instance": true },
+            "excludeByName": { "Time": true, "Value": true, "__name__": true, "job": true, "instance": true, "namespace": true, "service": true, "endpoint": true },
             "indexByName": {},
             "renameByName": { "name": "Device", "serial": "Serial", "network_name": "Network", "status": "Status" }
           }
@@ -193,23 +245,60 @@
       "fieldConfig": { "defaults": {}, "overrides": [] }
     },
     {
-      "id": 12,
-      "type": "timeseries",
-      "title": "Collector Duration",
+      "id": 17,
+      "type": "stat",
+      "title": "Collectors Failing",
+      "description": "Not affected by the Network filter: exporter health. Collectors whose last run errored — each one is reporting nothing for its whole dataset. A DISABLED collector cannot appear here at all, so if metrics are missing while this reads 0, check COLLECTORS_ENABLED. Full detail on the Exporter Health dashboard.",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 36 },
       "targets": [
-        { "refId": "A", "expr": "meraki_exporter_collector_duration_seconds", "legendFormat": "{{collector}}" }
+        { "refId": "A", "expr": "count(meraki_exporter_collector_success == 0) or vector(0)", "instant": true }
       ],
-      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 19,
+      "type": "stat",
+      "title": "License Status",
+      "description": "Not affected by the Network filter: licensing is an organisation-level property. Reads OK when Meraki reports the co-term licence as healthy. Pairs with the days-remaining tile at the top, which only tells you about expiry.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 40 },
+      "targets": [
+        { "refId": "A", "expr": "meraki_license_status_ok", "instant": true }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "mappings": [ { "type": "value", "options": { "1": { "text": "OK", "color": "green", "index": 0 }, "0": { "text": "CHECK", "color": "red", "index": 1 } } } ]
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 20,
+      "type": "stat",
+      "title": "Licensed Devices",
+      "description": "Not affected by the Network filter: organisation-level. Total licensed device count across all models; meraki_licensed_devices carries a per-model breakdown if you need it.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 40 },
+      "targets": [
+        { "refId": "A", "expr": "sum(meraki_licensed_devices) or vector(0)", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none", "color": { "mode": "fixed", "fixedColor": "blue" } }, "overrides": [] }
     },
     {
       "id": 13,
       "type": "stat",
       "title": "Open Critical Alerts",
-      "description": "Requires the opt-in alerts collector (COLLECTORS_ENABLED=...,alerts).",
+      "description": "Not affected by the Network filter: meraki_org_open_alerts is aggregated by severity and category with no network dimension. Requires the opt-in alerts collector (COLLECTORS_ENABLED=...,alerts).",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 28 },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 36 },
       "targets": [
         { "refId": "A", "expr": "sum(meraki_org_open_alerts{severity=\"critical\"}) or vector(0)", "instant": true }
       ],
@@ -227,9 +316,9 @@
       "title": "Sensors Reporting Water",
       "description": "Requires the opt-in sensors collector (COLLECTORS_ENABLED=...,sensors).",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 28 },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 36 },
       "targets": [
-        { "refId": "A", "expr": "count(meraki_sensor_water_detected == 1) or vector(0)", "instant": true }
+        { "refId": "A", "expr": "count(meraki_sensor_water_detected{network_name=~\"$network\"} == 1) or vector(0)", "instant": true }
       ],
       "fieldConfig": {
         "defaults": {
@@ -245,9 +334,9 @@
       "title": "Sensor Doors Open",
       "description": "Requires the opt-in sensors collector (COLLECTORS_ENABLED=...,sensors).",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 28 },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 36 },
       "targets": [
-        { "refId": "A", "expr": "count(meraki_sensor_door_open == 1) or vector(0)", "instant": true }
+        { "refId": "A", "expr": "count(meraki_sensor_door_open{network_name=~\"$network\"} == 1) or vector(0)", "instant": true }
       ],
       "fieldConfig": {
         "defaults": {

@@ -53,14 +53,20 @@ groups:
         annotations:
           summary: 'Uplink {{ $labels.interface }} on {{ $labels.serial }} has {{ $value | humanizeDuration }} latency to every monitored destination'
           description: 'Sustained latency above 300ms for 15 minutes in network {{ $labels.network_name }}, across all probe destinations. Per-destination detail is on the WAN dashboard.'
+
       - alert: MerakiWarmSpareFailover
         # Fires when an HA-enabled PRIMARY has no active uplink — it is no
         # longer passing traffic, so the spare has taken over.
         #
         # Do NOT key this on the spare having an active uplink: a healthy warm
         # spare keeps its own uplinks active while in standby, so that fires
-        # on every healthy pair. The ha_enabled guard matters too — standalone
-        # appliances also report role="primary" with enabled=false.
+        # on every healthy pair.
+        #
+        # The ha_enabled guard used to be load-bearing: Meraki labels
+        # standalone appliances role="primary" with enabled=false, which can be
+        # a large share of an estate. The exporter now maps those to
+        # role="standalone", so the guard is belt-and-braces — kept because it
+        # also excludes anything reporting an unexpected role.
         expr: ((meraki_appliance_ha_role{role="primary"} == 1) and on(serial) (meraki_appliance_ha_enabled == 1)) unless on(serial) (max by (serial) (meraki_uplink_status{status="active"} == 1))
         for: 5m
         labels:
@@ -69,6 +75,36 @@ groups:
           summary: 'HA primary {{ $labels.serial }} has no active uplink (warm spare likely active)'
           description: 'Primary MX in network {{ $labels.network_name }} has had no active uplink for 5 minutes — the warm spare has most likely taken over. Requires the uplinks collector (HA state rides along at no extra API cost).'
 
+      - alert: MerakiWarmSpareUnavailable
+        # Loss of redundancy: the pair still serves traffic, but the spare
+        # could not take over if the primary failed now. Two ways that shows
+        # up, OR'd together so one incident raises one alert:
+        #   1. the spare still reports but holds no usable uplink — nothing
+        #      active or ready (a healthy standby normally has both);
+        #   2. the spare device is offline, which can also drop it from the
+        #      uplink-status response entirely and make (1) blind. That branch
+        #      therefore takes the HA identity from max_over_time, so a spare
+        #      that has vanished from the appliance API is still recognised
+        #      as a spare for 6h. Needs the devices collector (default-on).
+        # Both branches are aggregated to the same label set so the or
+        # de-duplicates when a dead spare trips both at once.
+        # Warning, not critical: nothing is down until the primary also fails.
+        expr: |
+          max by (serial, network_id, network_name) (
+            ((meraki_appliance_ha_role{role="spare"} == 1) and on(serial) (meraki_appliance_ha_enabled == 1))
+              unless on(serial) (max by (serial) (meraki_uplink_status{status=~"active|ready"} == 1))
+          )
+          or
+          max by (serial, network_id, network_name) (
+            (meraki_device_status{status="offline"} == 1)
+              and on(serial) (max_over_time(meraki_appliance_ha_role{role="spare"}[6h]) == 1)
+          )
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Warm spare {{ $labels.serial }} cannot take over (redundancy lost)'
+          description: 'Spare MX in network {{ $labels.network_name }} has had no usable uplink, or has been offline, for 10 minutes. Traffic is unaffected while the primary is healthy, but a primary failure now means an outage.'
   - name: meraki-vpn
     rules:
       - alert: MerakiVpnPeerUnreachable
@@ -82,6 +118,47 @@ groups:
           summary: 'Meraki VPN peer {{ $labels.peer_name }} unreachable from network {{ $labels.network_name }}'
           description: 'Site-to-site VPN peer ({{ $labels.peer_type }}) has been unreachable for 10 minutes.'
 
+  - name: meraki-switch
+    rules:
+      - alert: MerakiSwitchPortDown
+        # An infrastructure port has lost its link: still administratively
+        # enabled, disconnected now, and connected for >90% of the preceding
+        # week. meraki_switch_port_status is opt-in (COLLECTORS_ENABLED must
+        # include switchports) — this rule only fires where it is enabled.
+        #
+        # The 90%-uptime test is what makes this pageable rather than a noise
+        # generator: desk ports where laptops come and go never get near it,
+        # so only permanently patched links (AP and camera uplinks, servers,
+        # inter-switch links) can fire. Do NOT simplify it to "was connected
+        # at some point recently" — that matches every unplugged laptop.
+        #
+        # The offset is load-bearing too: without it the port's current
+        # downtime drags its own average below the threshold and the rule
+        # silences itself the longer the fault lasts. Offsetting the window
+        # asks "was this port reliably up BEFORE it went down". Side effect:
+        # the alert self-resolves about 7 days into a sustained outage, once
+        # the lookback window has moved entirely inside the downtime.
+        #
+        # The Device Health dashboard panel is deliberately broader (any port
+        # connected within 7d) — a human scanning a list can filter noise that
+        # an alert cannot.
+        #
+        # for: 15m is one poll cycle of confirmation, not fifteen minutes of
+        # evidence. switchports sits in the slow group (30m on a 5m/30m
+        # profile) and the exporter serves the same cached value between polls,
+        # so the condition holds continuously from the first bad poll. 15m
+        # keeps worst-case detection near 45min (up to 30m poll lag + 15m);
+        # 30m bought a second poll cycle of nothing.
+        expr: |
+          meraki_switch_port_status{status="Disconnected"} == 1
+            and on(serial, network_id, port_id) (meraki_switch_port_enabled == 1)
+            and on(serial, network_id, port_id) (avg_over_time(meraki_switch_port_status{status="Connected"}[7d] offset 1h) > 0.9)
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Switch port {{ $labels.port_id }} on {{ $labels.serial }} has lost its link'
+          description: 'Port in network {{ $labels.network_name }} was connected for more than 90% of the past week but has been disconnected while still administratively enabled. Something that is normally always plugged in has gone away.'
   - name: meraki-wireless
     rules:
       - alert: MerakiChannelUtilizationHigh
@@ -209,18 +286,24 @@ groups:
           description: 'The exporter has vanished from Prometheus entirely (scrape job removed or renamed?). Catches cases the up == 0 rule cannot.'
 
       - alert: MerakiCollectorFailing
+        # The 15m window is shorter than the slow group's poll interval (15m
+        # default, 30m on a 5m/30m profile), and the cached success value
+        # persists between polls — so for a slow-group collector this fires
+        # after a SINGLE failed poll, not after repeated ones. That is
+        # deliberate: one failed slow poll already means half an hour of stale
+        # data. Fast-group collectors do need several consecutive failures.
         expr: meraki_exporter_collector_success == 0
         for: 15m
         labels:
           severity: warning
         annotations:
           summary: 'Meraki exporter collector {{ $labels.collector }} is failing'
-          description: 'Collector has failed every poll for 15 minutes; its metrics are stale. Check exporter logs (journalctl -u meraki-exporter).'
+          description: 'Collector last failed and its metrics are stale or absent. For slow-group collectors (clients, licenses, apiusage, alerts) one failed poll is enough to raise this. Note a collector reports failure for its whole dataset: the clients collector, for example, fails outright when the organization network list cannot be fetched. Check exporter logs (journalctl -u meraki-exporter).'
 
       - alert: MerakiClientsCollectorSlow
-        # 1440s = 80% of a 30m SLOW_SCRAPE_INTERVAL (use 720 for the 15m
-        # default). The clients collector makes one API call per network, so
-        # raise this alongside the interval on orgs with many networks.
+        # 1440s = 80% of a 30m SLOW_SCRAPE_INTERVAL (use 720 for
+        # the 15m default). The clients collector makes one API call per network,
+        # so raise this alongside the interval on orgs with many networks.
         expr: meraki_exporter_collector_duration_seconds{collector="clients"} > 1440
         for: 30m
         labels:

@@ -1,0 +1,163 @@
+{
+  "title": "Meraki VPN",
+  "uid": "meraki-vpn",
+  "description": "Site-to-site VPN: peer reachability and per-tunnel traffic. Split out of the WAN dashboard 2026-08-14, which had grown to cover three unrelated concerns. Requires the opt-in vpn collector (COLLECTORS_ENABLED=...,vpn).",
+  "tags": ["meraki", "network", "vpn"],
+  "schemaVersion": 39,
+  "editable": true,
+  "graphTooltip": 1,
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "",
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "label": "Data source",
+        "query": "prometheus",
+        "current": {}
+      },
+      {
+        "name": "network",
+        "type": "query",
+        "label": "Network",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "query": { "query": "label_values(meraki_device_status, network_name)", "refId": "A" },
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "VPN Peers Reachable",
+      "description": "Requires the opt-in vpn collector (COLLECTORS_ENABLED=...,vpn).",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        { "refId": "A", "expr": "count(meraki_vpn_peer_status{status=\"reachable\",network_name=~\"$network\"} == 1) or vector(0)", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none", "color": { "mode": "fixed", "fixedColor": "green" } }, "overrides": [] }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "VPN Peers Unreachable",
+      "description": "Requires the opt-in vpn collector (COLLECTORS_ENABLED=...,vpn).",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "targets": [
+        { "refId": "A", "expr": "count(meraki_vpn_peer_status{status=\"unreachable\",network_name=~\"$network\"} == 1) or vector(0)", "instant": true }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Total Tunnel Traffic Sent",
+      "description": "Sum across every tunnel in scope, derived from the windowed byte counts. Like every traffic panel here this is an average over the LAST HOUR, not over the last poll - see the per-tunnel panel below for why. Third-party (non-Meraki) peers are NOT included: Meraki's VPN stats endpoint returns Meraki peers only, so expect the reachability counts above to cover more tunnels than the traffic panels do.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "targets": [
+        { "refId": "A", "expr": "sum(meraki_vpn_peer_sent_bytes{network_name=~\"$network\"} / on(job, instance) group_left() meraki_vpn_usage_window_seconds)", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "Bps", "min": 0, "color": { "mode": "fixed", "fixedColor": "blue" } }, "overrides": [] }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Total Tunnel Traffic Received",
+      "description": "Sum across every tunnel in scope, averaged over the last hour. Same caveats as the sent tile: Meraki peers only, and a one-hour average rather than a per-poll figure.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "targets": [
+        { "refId": "A", "expr": "sum(meraki_vpn_peer_received_bytes{network_name=~\"$network\"} / on(job, instance) group_left() meraki_vpn_usage_window_seconds)", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "Bps", "min": 0, "color": { "mode": "fixed", "fixedColor": "blue" } }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "VPN Tunnel Traffic Sent",
+      "description": "Per-tunnel throughput, derived from the windowed byte count: meraki_vpn_peer_sent_bytes / meraki_vpn_usage_window_seconds, joined on job+instance. Direction is from this network TO the named peer. The underlying metric is a sum over that window, NOT a counter - rate() on it would be meaningless. IMPORTANT: the window is ONE HOUR, not the poll interval. Meraki's VPN stats endpoint does not answer shorter windows honestly - it serves a fixed bucket rather than the rolling window requested - so the exporter floors it at an hour. Polling still happens every SCRAPE_INTERVAL, but each sample covers the PRECEDING hour and consecutive samples OVERLAP - they cannot be summed into a period total. Read this line as a one-hour moving average: it lags, it cannot show a short spike, and its flat steps are Meraki rolling its own bucket rather than anything the exporter does. For short-lived events use the uplink traffic panels on the WAN dashboard, which have a genuine 5-minute window.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [
+        { "refId": "A", "expr": "meraki_vpn_peer_sent_bytes{network_name=~\"$network\"} / on(job, instance) group_left() meraki_vpn_usage_window_seconds", "legendFormat": "{{network_name}} -> {{peer_name}}" }
+      ],
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] } },
+      "fieldConfig": { "defaults": { "unit": "Bps", "min": 0, "custom": { "fillOpacity": 10 } }, "overrides": [] }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "VPN Tunnel Traffic Received",
+      "description": "Per-tunnel throughput inbound from the named peer. Same caveats as the sent panel - a windowed sum rather than a counter, and the window is one hour rather than the poll interval, so this is a one-hour moving average that lags and cannot show a short spike.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [
+        { "refId": "A", "expr": "meraki_vpn_peer_received_bytes{network_name=~\"$network\"} / on(job, instance) group_left() meraki_vpn_usage_window_seconds", "legendFormat": "{{network_name}} <- {{peer_name}}" }
+      ],
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] } },
+      "fieldConfig": { "defaults": { "unit": "Bps", "min": 0, "custom": { "fillOpacity": 10 } }, "overrides": [] }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Traffic by Site (all tunnels combined)",
+      "description": "One line per site rather than per tunnel: every tunnel a site has, summed. Use this to see WHICH site is busy, then the per-tunnel panels above to see which tunnel. Direction is from the named site's point of view, so one tunnel contributes to both endpoints: to its local site as sent, and to the far site as received. Org-wide totals are still correct - each byte is counted once as sent by somebody and once as received by somebody, which is why the two total tiles above always read the same figure. Like every traffic panel on this dashboard it is a one-hour moving average rather than a per-poll figure; the per-tunnel panel above explains why.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+      "targets": [
+        { "refId": "A", "expr": "sum by (network_name) (meraki_vpn_peer_sent_bytes{network_name=~\"$network\"} / on(job, instance) group_left() meraki_vpn_usage_window_seconds)", "legendFormat": "{{network_name}} sent" },
+        { "refId": "B", "expr": "sum by (network_name) (meraki_vpn_peer_received_bytes{network_name=~\"$network\"} / on(job, instance) group_left() meraki_vpn_usage_window_seconds)", "legendFormat": "{{network_name}} received" }
+      ],
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"], "sortBy": "Max", "sortDesc": true } },
+      "fieldConfig": { "defaults": { "unit": "Bps", "min": 0, "custom": { "fillOpacity": 10 } }, "overrides": [] }
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Current VPN Peer Status",
+      "description": "Every peer and its current reachability. This covers third-party peers as well as Meraki ones, so it can list tunnels that have no traffic graph above.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 20 },
+      "targets": [
+        { "refId": "A", "expr": "meraki_vpn_peer_status{network_name=~\"$network\"} == 1", "instant": true, "format": "table" }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true, "Value": true, "__name__": true, "job": true, "instance": true, "network_id": true, "namespace": true, "service": true, "endpoint": true },
+            "indexByName": { "network_name": 0, "peer_name": 1, "peer_type": 2, "status": 3 },
+            "renameByName": { "network_name": "Network", "peer_name": "Peer", "peer_type": "Type", "status": "Status" }
+          }
+        },
+        { "id": "sortBy", "options": { "sort": [ { "field": "Status", "desc": false } ] } }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Status" },
+            "properties": [
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              { "id": "mappings", "value": [ { "type": "value", "options": { "unreachable": { "color": "red", "index": 0 }, "reachable": { "color": "green", "index": 1 } } } ] }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

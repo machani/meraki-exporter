@@ -49,6 +49,30 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
           govulncheck ./...
 
+  rules:
+    runs-on: ubuntu-latest
+    # Pin deliberately, and ideally to the Prometheus version that evaluates
+    # these rules in your environment — the point is to test against the same
+    # engine. Note promtool cannot be `go install`ed: the Prometheus go.mod
+    # carries replace directives, so the released binary is used instead.
+    env:
+      PROMETHEUS_VERSION: "3.14.0"
+    steps:
+      - uses: actions/checkout@v5
+      - name: install promtool
+        run: |
+          curl -fsSL "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz" \
+            | tar xz --strip-components=1 "prometheus-${PROMETHEUS_VERSION}.linux-amd64/promtool"
+          sudo install -m 0755 promtool /usr/local/bin/promtool
+          promtool --version
+      # alerts_test.yml references alerts.yml by a relative path, so both
+      # commands run from the directory holding them.
+      - name: check and test alerting rules
+        working-directory: prometheus
+        run: |
+          promtool check rules alerts.yml
+          promtool test rules alerts_test.yml
+
   build:
     runs-on: ubuntu-latest
     needs: [test, lint]

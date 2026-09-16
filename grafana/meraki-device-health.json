@@ -6,8 +6,8 @@
   "schemaVersion": 39,
   "editable": true,
   "graphTooltip": 1,
-  "time": { "from": "now-6h", "to": "now" },
-  "refresh": "1m",
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "",
   "templating": {
     "list": [
       {
@@ -27,6 +27,35 @@
         "multi": true,
         "includeAll": true,
         "current": {}
+      },
+      {
+        "name": "status",
+        "type": "custom",
+        "label": "Status",
+        "description": "Filters the not-online device table only, not the tiles or the over-time graph. Set by clicking one of the Alerting / Offline / Dormant tiles; All lists every not-online device.",
+        "query": "alerting,offline,dormant",
+        "options": [
+          { "text": "alerting", "value": "alerting", "selected": false },
+          { "text": "offline", "value": "offline", "selected": false },
+          { "text": "dormant", "value": "dormant", "selected": false }
+        ],
+        "multi": true,
+        "includeAll": true,
+        "allValue": "alerting|offline|dormant",
+        "current": { "selected": true, "text": "All", "value": "$__all" }
+      },
+      {
+        "name": "product_type",
+        "type": "query",
+        "label": "Product type",
+        "description": "Filters the Device Inventory table only, not the whole dashboard. Normally left on All: it exists so a slice of the Devices by Product Type donut has something to drill into.",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "query": { "query": "label_values(meraki_device_info, product_type)", "refId": "A" },
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": { "selected": true, "text": "All", "value": "$__all" }
       }
     ]
   },
@@ -64,6 +93,9 @@
       ],
       "fieldConfig": {
         "defaults": {
+          "links": [
+            { "title": "Show these devices", "url": "/d/meraki-device-health?viewPanel=14&${__url_time_range}&${network:queryparam}&var-status=alerting", "targetBlank": false }
+          ],
           "unit": "none",
           "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 1 } ] }
         },
@@ -81,6 +113,9 @@
       ],
       "fieldConfig": {
         "defaults": {
+          "links": [
+            { "title": "Show these devices", "url": "/d/meraki-device-health?viewPanel=14&${__url_time_range}&${network:queryparam}&var-status=offline", "targetBlank": false }
+          ],
           "unit": "none",
           "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] }
         },
@@ -96,16 +131,26 @@
       "targets": [
         { "refId": "A", "expr": "count(meraki_device_status{status=\"dormant\",network_name=~\"$network\"} == 1) or vector(0)", "instant": true }
       ],
-      "fieldConfig": { "defaults": { "unit": "none", "color": { "mode": "fixed", "fixedColor": "text" } }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": { "mode": "fixed", "fixedColor": "text" },
+          "links": [
+            { "title": "Show these devices", "url": "/d/meraki-device-health?viewPanel=14&${__url_time_range}&${network:queryparam}&var-status=dormant", "targetBlank": false }
+          ]
+        },
+        "overrides": []
+      }
     },
     {
       "id": 6,
       "type": "stat",
       "title": "Availability",
+      "description": "Share of devices reporting online. The numerator carries an or vector(0) so a total outage reads 0% instead of \"No data\"; the denominator deliberately has no fallback, so if the exporter itself stops reporting the panel still goes blank rather than claiming 0% availability.",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
       "targets": [
-        { "refId": "A", "expr": "100 * count(meraki_device_status{status=\"online\",network_name=~\"$network\"} == 1) / count(meraki_device_status{status=\"online\",network_name=~\"$network\"})", "instant": true }
+        { "refId": "A", "expr": "100 * (count(meraki_device_status{status=\"online\",network_name=~\"$network\"} == 1) or vector(0)) / count(meraki_device_status{status=\"online\",network_name=~\"$network\"})", "instant": true }
       ],
       "fieldConfig": {
         "defaults": {
@@ -126,7 +171,15 @@
         { "refId": "A", "expr": "count by (product_type) (meraki_device_info{network_name=~\"$network\"})", "instant": true, "legendFormat": "{{product_type}}" }
       ],
       "options": { "pieType": "donut", "legend": { "displayMode": "list", "placement": "right" } },
-      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "links": [
+            { "title": "Show these devices in the inventory", "url": "/d/meraki-device-health?viewPanel=10&${__url_time_range}&${network:queryparam}&var-product_type=${__field.labels.product_type}", "targetBlank": false }
+          ]
+        },
+        "overrides": []
+      }
     },
     {
       "id": 8,
@@ -148,11 +201,100 @@
       }
     },
     {
+      "id": 14,
+      "type": "table",
+      "title": "Devices Not Online (which ones)",
+      "description": "The devices behind the Alerting / Offline / Dormant counters above. Clicking one of those tiles narrows this table to that status via the Status variable; on All it lists every not-online device. An empty table means everything is online.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+      "targets": [
+        { "refId": "A", "expr": "meraki_device_status{status=~\"$status\",network_name=~\"$network\"} == 1", "instant": true, "format": "table" }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true, "Value": true, "__name__": true, "job": true, "instance": true, "namespace": true, "service": true, "endpoint": true, "network_id": true },
+            "indexByName": { "name": 0, "serial": 1, "status": 2, "network_name": 3 },
+            "renameByName": { "name": "Device", "serial": "Serial", "status": "Status", "network_name": "Network" }
+          }
+        },
+        { "id": "sortBy", "options": { "sort": [ { "field": "Status", "desc": false } ] } }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Status" },
+            "properties": [
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              { "id": "mappings", "value": [ { "type": "value", "options": { "offline": { "color": "red", "index": 0 }, "alerting": { "color": "orange", "index": 1 }, "dormant": { "color": "text", "index": 2 } } } ] }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 15,
+      "type": "geomap",
+      "title": "Device Locations",
+      "description": "Every device that has been placed on the Meraki dashboard map, from the lat/lng labels on meraki_device_info. Devices with no position carry empty coordinates and are simply absent here rather than being plotted at 0,0. Coordinates ride along on the devices response, so this panel costs no additional API calls.\n\nTo colour markers by health instead of a fixed colour, change the query to join device status, e.g. (meraki_device_info{network_name=~\"$network\"} * on(serial) group_left() (max by (serial) (meraki_device_status{status=\"offline\"} == 1))) or (meraki_device_info{network_name=~\"$network\"} * 0) — that yields 1 for offline devices and 0 for the rest, which the layer can threshold on.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 20 },
+      "targets": [
+        { "refId": "A", "expr": "meraki_device_info{network_name=~\"$network\"}", "instant": true, "format": "table" }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true, "Value": true, "__name__": true, "job": true, "instance": true, "namespace": true, "service": true, "endpoint": true, "mac": true, "network_id": true, "firmware": true },
+            "indexByName": { "name": 0, "network_name": 1, "product_type": 2, "model": 3, "serial": 4, "address": 5, "lat": 6, "lng": 7 },
+            "renameByName": { "name": "Device", "network_name": "Network", "product_type": "Type", "model": "Model", "serial": "Serial", "address": "Address" }
+          }
+        },
+        {
+          "id": "convertFieldType",
+          "options": {
+            "conversions": [
+              { "targetField": "lat", "destinationType": "number" },
+              { "targetField": "lng", "destinationType": "number" }
+            ],
+            "fields": {}
+          }
+        }
+      ],
+      "options": {
+        "view": { "id": "fit", "allLayers": true },
+        "basemap": { "type": "default", "name": "Basemap", "config": {} },
+        "controls": { "showZoom": true, "mouseWheelZoom": false, "showAttribution": true, "showScale": false },
+        "tooltip": { "mode": "details" },
+        "layers": [
+          {
+            "type": "markers",
+            "name": "Devices",
+            "location": { "mode": "coords", "latitude": "lat", "longitude": "lng" },
+            "config": {
+              "style": {
+                "size": { "fixed": 6, "min": 4, "max": 12 },
+                "color": { "fixed": "green" },
+                "opacity": 0.8,
+                "symbol": { "mode": "fixed", "fixed": "img/icons/marker/circle.svg" }
+              },
+              "showLegend": false
+            },
+            "tooltip": true
+          }
+        ]
+      },
+      "fieldConfig": { "defaults": {}, "overrides": [] }
+    },
+    {
       "id": 9,
       "type": "table",
       "title": "Firmware Distribution",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 12 },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 32 },
       "targets": [
         { "refId": "A", "expr": "count by (product_type, model, firmware) (meraki_device_info{network_name=~\"$network\"})", "instant": true, "format": "table" }
       ],
@@ -173,16 +315,17 @@
       "id": 10,
       "type": "table",
       "title": "Device Inventory",
+      "description": "Every device in scope. Respects the Product type variable as well as Network, which is how clicking a slice of the Devices by Product Type donut filters this table.",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 12 },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 32 },
       "targets": [
-        { "refId": "A", "expr": "meraki_device_info{network_name=~\"$network\"}", "instant": true, "format": "table" }
+        { "refId": "A", "expr": "meraki_device_info{network_name=~\"$network\",product_type=~\"$product_type\"}", "instant": true, "format": "table" }
       ],
       "transformations": [
         {
           "id": "organize",
           "options": {
-            "excludeByName": { "Time": true, "Value": true, "__name__": true, "job": true, "instance": true, "network_id": true, "mac": true },
+            "excludeByName": { "Time": true, "Value": true, "__name__": true, "job": true, "instance": true, "namespace": true, "service": true, "endpoint": true, "network_id": true, "mac": true },
             "indexByName": { "name": 0, "serial": 1, "model": 2, "product_type": 3, "firmware": 4, "network_name": 5 },
             "renameByName": { "name": "Device", "serial": "Serial", "model": "Model", "product_type": "Type", "firmware": "Firmware", "network_name": "Network" }
           }
@@ -193,14 +336,14 @@
     {
       "id": 11,
       "type": "stat",
-      "title": "Switch Ports Down (enabled)",
-      "description": "Requires the opt-in switchports collector (COLLECTORS_ENABLED=...,switchports). Counts only administratively-enabled ports, to exclude intentionally-unused disconnected ports.",
+      "title": "Ports Down (recently in use)",
+      "description": "Ports that are administratively enabled AND carried a link at some point in the last 7 days, but are disconnected right now. Ports that are switched on and have never been patched are excluded: they are disconnected by design and made up most of the old enabled-but-disconnected list. Change [7d] in the query to widen or narrow the memory - a port stays listed for that long after it loses its link. Requires the opt-in switchports collector (COLLECTORS_ENABLED=...,switchports).",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 21 },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 41 },
       "targets": [
         {
           "refId": "A",
-          "expr": "count(meraki_switch_port_status{status=\"Disconnected\",network_name=~\"$network\"} == 1 and on(serial, network_id, port_id) meraki_switch_port_enabled == 1) or vector(0)",
+          "expr": "count(meraki_switch_port_status{status=\"Disconnected\",network_name=~\"$network\"} == 1 and on(serial, network_id, port_id) (meraki_switch_port_enabled == 1) and on(serial, network_id, port_id) (max_over_time(meraki_switch_port_status{status=\"Connected\"}[7d]) == 1)) or vector(0)",
           "instant": true
         }
       ],
@@ -218,7 +361,7 @@
       "title": "PoE Ports Active",
       "description": "Requires the opt-in switchports collector (COLLECTORS_ENABLED=...,switchports).",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 21 },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 41 },
       "targets": [
         { "refId": "A", "expr": "count(meraki_switch_port_poe_allocated{network_name=~\"$network\"} == 1) or vector(0)", "instant": true }
       ],
@@ -227,14 +370,14 @@
     {
       "id": 13,
       "type": "table",
-      "title": "Enabled Ports Currently Disconnected",
-      "description": "Requires the opt-in switchports collector (COLLECTORS_ENABLED=...,switchports).",
+      "title": "Which Ports Are Down (recently in use)",
+      "description": "The ports behind the count to the left: enabled, seen connected within the last 7 days, disconnected now. A port drops off this list 7 days after it goes down, so this is a recent-breakage view rather than a permanent fault list. Requires the opt-in switchports collector (COLLECTORS_ENABLED=...,switchports).",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 21 },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 41 },
       "targets": [
         {
           "refId": "A",
-          "expr": "meraki_switch_port_status{status=\"Disconnected\",network_name=~\"$network\"} == 1 and on(serial, network_id, port_id) meraki_switch_port_enabled == 1",
+          "expr": "meraki_switch_port_status{status=\"Disconnected\",network_name=~\"$network\"} == 1 and on(serial, network_id, port_id) (meraki_switch_port_enabled == 1) and on(serial, network_id, port_id) (max_over_time(meraki_switch_port_status{status=\"Connected\"}[7d]) == 1)",
           "instant": true,
           "format": "table"
         }
@@ -243,7 +386,7 @@
         {
           "id": "organize",
           "options": {
-            "excludeByName": { "Time": true, "Value": true, "__name__": true, "job": true, "instance": true, "network_id": true },
+            "excludeByName": { "Time": true, "Value": true, "__name__": true, "job": true, "instance": true, "namespace": true, "service": true, "endpoint": true, "network_id": true },
             "indexByName": { "serial": 0, "network_name": 1, "port_id": 2, "status": 3 },
             "renameByName": { "serial": "Switch", "network_name": "Network", "port_id": "Port", "status": "Status" }
           }

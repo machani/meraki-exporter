@@ -1,0 +1,222 @@
+# promtool unit tests for the warm-spare and switch-port rules in alerts.yml.
+#
+# Run from this directory:
+#   promtool test rules alerts_test.yml
+#
+# These pin two behaviours that produce false positives in production, and that
+# no Go test can cover because they live in PromQL:
+#   - a healthy HA pair must be silent even though the spare holds an active
+#     uplink of its own (a naive rule fires on every pair);
+#   - a standalone appliance must never be treated as an HA member, which can
+#     be a large share of an estate. Meraki labels them role="primary" with
+#     HA disabled; the exporter maps that to role="standalone", which is what
+#     these fixtures carry.
+# The exporter-side half of the same contract is in
+# internal/collector/collectors_test.go (TestCollectUplinksHAMetrics).
+#
+# Test 5 covers MerakiSwitchPortDown, whose whole design problem is noise: an
+# unoccupied desk port and a failed infrastructure port look identical at a
+# single point in time. It pins that only the reliably-up port can alert.
+
+rule_files:
+  - alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  # 1. Steady state: one healthy HA pair plus one standalone appliance.
+  #    Neither warm-spare rule may fire.
+  - interval: 1m
+    input_series:
+      # MX1 — HA primary, carrying traffic.
+      - series: 'meraki_appliance_ha_enabled{serial="MX1",network_id="N_1",network_name="HQ"}'
+        values: '1x20'
+      - series: 'meraki_appliance_ha_role{serial="MX1",network_id="N_1",network_name="HQ",role="primary"}'
+        values: '1x20'
+      - series: 'meraki_appliance_ha_role{serial="MX1",network_id="N_1",network_name="HQ",role="spare"}'
+        values: '0x20'
+      - series: 'meraki_uplink_status{serial="MX1",network_id="N_1",network_name="HQ",interface="wan1",status="active"}'
+        values: '1x20'
+      - series: 'meraki_uplink_status{serial="MX1",network_id="N_1",network_name="HQ",interface="wan2",status="ready"}'
+        values: '1x20'
+      # MX2 — HA spare in normal standby. Its uplinks are active/ready too;
+      # this is exactly what the pre-fix rule mistook for failover.
+      - series: 'meraki_appliance_ha_enabled{serial="MX2",network_id="N_1",network_name="HQ"}'
+        values: '1x20'
+      - series: 'meraki_appliance_ha_role{serial="MX2",network_id="N_1",network_name="HQ",role="primary"}'
+        values: '0x20'
+      - series: 'meraki_appliance_ha_role{serial="MX2",network_id="N_1",network_name="HQ",role="spare"}'
+        values: '1x20'
+      - series: 'meraki_uplink_status{serial="MX2",network_id="N_1",network_name="HQ",interface="wan1",status="active"}'
+        values: '1x20'
+      - series: 'meraki_uplink_status{serial="MX2",network_id="N_1",network_name="HQ",interface="wan2",status="ready"}'
+        values: '1x20'
+      # MX3 — standalone. Meraki sends role="primary" with enabled=false; the
+      # exporter maps it to role="standalone", so no role="primary" series at 1
+      # exists for it at all.
+      - series: 'meraki_appliance_ha_enabled{serial="MX3",network_id="N_2",network_name="Branch"}'
+        values: '0x20'
+      - series: 'meraki_appliance_ha_role{serial="MX3",network_id="N_2",network_name="Branch",role="standalone"}'
+        values: '1x20'
+      - series: 'meraki_appliance_ha_role{serial="MX3",network_id="N_2",network_name="Branch",role="primary"}'
+        values: '0x20'
+      - series: 'meraki_uplink_status{serial="MX3",network_id="N_2",network_name="Branch",interface="wan1",status="active"}'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: MerakiWarmSpareFailover
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: MerakiWarmSpareUnavailable
+        exp_alerts: []
+
+  # 2. Real failover: the HA primary has lost every uplink, the spare is fine.
+  - interval: 1m
+    input_series:
+      - series: 'meraki_appliance_ha_enabled{serial="MX1",network_id="N_1",network_name="HQ"}'
+        values: '1x20'
+      - series: 'meraki_appliance_ha_role{serial="MX1",network_id="N_1",network_name="HQ",role="primary"}'
+        values: '1x20'
+      - series: 'meraki_uplink_status{serial="MX1",network_id="N_1",network_name="HQ",interface="wan1",status="active"}'
+        values: '0x20'
+      - series: 'meraki_uplink_status{serial="MX1",network_id="N_1",network_name="HQ",interface="wan1",status="failed"}'
+        values: '1x20'
+      - series: 'meraki_uplink_status{serial="MX1",network_id="N_1",network_name="HQ",interface="wan2",status="active"}'
+        values: '0x20'
+      - series: 'meraki_appliance_ha_enabled{serial="MX2",network_id="N_1",network_name="HQ"}'
+        values: '1x20'
+      - series: 'meraki_appliance_ha_role{serial="MX2",network_id="N_1",network_name="HQ",role="spare"}'
+        values: '1x20'
+      - series: 'meraki_uplink_status{serial="MX2",network_id="N_1",network_name="HQ",interface="wan1",status="active"}'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: MerakiWarmSpareFailover
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              serial: MX1
+              network_id: N_1
+              network_name: HQ
+              role: primary
+            exp_annotations:
+              summary: 'HA primary MX1 has no active uplink (warm spare likely active)'
+              description: 'Primary MX in network HQ has had no active uplink for 5 minutes — the warm spare has most likely taken over. Requires the uplinks collector (HA state rides along at no extra API cost).'
+      # The healthy spare must not also raise a redundancy alert.
+      - eval_time: 10m
+        alertname: MerakiWarmSpareUnavailable
+        exp_alerts: []
+
+  # 3. Redundancy lost, branch 1: the spare still reports but holds no usable
+  #    uplink. The primary is healthy, so no failover alert.
+  - interval: 1m
+    input_series:
+      - series: 'meraki_appliance_ha_enabled{serial="MX1",network_id="N_1",network_name="HQ"}'
+        values: '1x20'
+      - series: 'meraki_appliance_ha_role{serial="MX1",network_id="N_1",network_name="HQ",role="primary"}'
+        values: '1x20'
+      - series: 'meraki_uplink_status{serial="MX1",network_id="N_1",network_name="HQ",interface="wan1",status="active"}'
+        values: '1x20'
+      - series: 'meraki_appliance_ha_enabled{serial="MX2",network_id="N_1",network_name="HQ"}'
+        values: '1x20'
+      - series: 'meraki_appliance_ha_role{serial="MX2",network_id="N_1",network_name="HQ",role="spare"}'
+        values: '1x20'
+      - series: 'meraki_uplink_status{serial="MX2",network_id="N_1",network_name="HQ",interface="wan1",status="active"}'
+        values: '0x20'
+      - series: 'meraki_uplink_status{serial="MX2",network_id="N_1",network_name="HQ",interface="wan1",status="ready"}'
+        values: '0x20'
+      - series: 'meraki_uplink_status{serial="MX2",network_id="N_1",network_name="HQ",interface="wan1",status="failed"}'
+        values: '1x20'
+      # Still online as a device — only branch 1 applies.
+      - series: 'meraki_device_status{serial="MX2",name="hq-mx-spare",network_id="N_1",network_name="HQ",status="offline"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: MerakiWarmSpareUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              serial: MX2
+              network_id: N_1
+              network_name: HQ
+            exp_annotations:
+              summary: 'Warm spare MX2 cannot take over (redundancy lost)'
+              description: 'Spare MX in network HQ has had no usable uplink, or has been offline, for 10 minutes. Traffic is unaffected while the primary is healthy, but a primary failure now means an outage.'
+      - eval_time: 15m
+        alertname: MerakiWarmSpareFailover
+        exp_alerts: []
+
+  # 4. Redundancy lost, branch 2: the spare has gone offline AND dropped out of
+  #    the appliance uplink-status response entirely (its ha_* series stop at
+  #    5m). Branch 1 goes blind here; max_over_time keeps the HA identity, so
+  #    the alert still fires — and only once, not twice.
+  - interval: 1m
+    input_series:
+      - series: 'meraki_appliance_ha_enabled{serial="MX1",network_id="N_1",network_name="HQ"}'
+        values: '1x40'
+      - series: 'meraki_appliance_ha_role{serial="MX1",network_id="N_1",network_name="HQ",role="primary"}'
+        values: '1x40'
+      - series: 'meraki_uplink_status{serial="MX1",network_id="N_1",network_name="HQ",interface="wan1",status="active"}'
+        values: '1x40'
+      # The spare stops being reported by the appliance endpoint after 5m.
+      - series: 'meraki_appliance_ha_enabled{serial="MX2",network_id="N_1",network_name="HQ"}'
+        values: '1x5'
+      - series: 'meraki_appliance_ha_role{serial="MX2",network_id="N_1",network_name="HQ",role="spare"}'
+        values: '1x5'
+      # The devices endpoint still lists it, offline.
+      - series: 'meraki_device_status{serial="MX2",name="hq-mx-spare",network_id="N_1",network_name="HQ",status="offline"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: MerakiWarmSpareUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              serial: MX2
+              network_id: N_1
+              network_name: HQ
+            exp_annotations:
+              summary: 'Warm spare MX2 cannot take over (redundancy lost)'
+              description: 'Spare MX in network HQ has had no usable uplink, or has been offline, for 10 minutes. Traffic is unaffected while the primary is healthy, but a primary failure now means an outage.'
+      - eval_time: 30m
+        alertname: MerakiWarmSpareFailover
+        exp_alerts: []
+
+  # 5. MerakiSwitchPortDown must distinguish an infrastructure port that lost
+  #    its link from a desk port that is simply unoccupied. Both are on the
+  #    same switch, both are enabled, both are disconnected at eval time — only
+  #    the one that was reliably up beforehand may alert.
+  - interval: 1m
+    input_series:
+      # Port 8 — patched to something permanent. Up for 90m, then the link drops.
+      - series: 'meraki_switch_port_enabled{serial="SW1",network_id="N_1",network_name="HQ",port_id="8"}'
+        values: '1x131'
+      - series: 'meraki_switch_port_status{serial="SW1",network_id="N_1",network_name="HQ",port_id="8",status="Connected"}'
+        values: '1x90 0x40'
+      - series: 'meraki_switch_port_status{serial="SW1",network_id="N_1",network_name="HQ",port_id="8",status="Disconnected"}'
+        values: '0x90 1x40'
+      # Port 12 — a desk port. Occupied briefly, empty since; this is the shape
+      # that would flood the pager if the rule only asked "connected recently?".
+      - series: 'meraki_switch_port_enabled{serial="SW1",network_id="N_1",network_name="HQ",port_id="12"}'
+        values: '1x131'
+      - series: 'meraki_switch_port_status{serial="SW1",network_id="N_1",network_name="HQ",port_id="12",status="Connected"}'
+        values: '1x20 0x110'
+      - series: 'meraki_switch_port_status{serial="SW1",network_id="N_1",network_name="HQ",port_id="12",status="Disconnected"}'
+        values: '0x20 1x110'
+    alert_rule_test:
+      # 110m pins the 15m confirmation window specifically: the port goes
+      # dark at 91m, so a for:15m rule is firing by 106m while a for:30m one
+      # would not fire until 121m. Raise this if the window ever changes.
+      - eval_time: 110m
+        alertname: MerakiSwitchPortDown
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              serial: SW1
+              network_id: N_1
+              network_name: HQ
+              port_id: '8'
+              status: Disconnected
+            exp_annotations:
+              summary: 'Switch port 8 on SW1 has lost its link'
+              description: 'Port in network HQ was connected for more than 90% of the past week but has been disconnected while still administratively enabled. Something that is normally always plugged in has gone away.'

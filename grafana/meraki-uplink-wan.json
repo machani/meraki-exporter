@@ -6,8 +6,8 @@
   "schemaVersion": 39,
   "editable": true,
   "graphTooltip": 1,
-  "time": { "from": "now-6h", "to": "now" },
-  "refresh": "1m",
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "",
   "templating": {
     "list": [
       {
@@ -124,7 +124,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
       "targets": [
-        { "refId": "A", "expr": "meraki_uplink_loss_percent{network_name=~\"$network\"}", "legendFormat": "{{network_name}} / {{serial}} {{interface}} ({{ip}})" }
+        { "refId": "A", "expr": "meraki_uplink_loss_percent{network_name=~\"$network\"}", "legendFormat": "{{network_name}} {{role}} {{interface}} ({{ip}}) / {{serial}}" }
       ],
       "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] }
     },
@@ -135,18 +135,44 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
       "targets": [
-        { "refId": "A", "expr": "meraki_uplink_latency_seconds{network_name=~\"$network\"}", "legendFormat": "{{network_name}} / {{serial}} {{interface}} ({{ip}})" }
+        { "refId": "A", "expr": "meraki_uplink_latency_seconds{network_name=~\"$network\"}", "legendFormat": "{{network_name}} {{role}} {{interface}} ({{ip}}) / {{serial}}" }
       ],
       "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Uplink Traffic Sent",
+      "description": "Throughput derived from the windowed byte count: meraki_uplink_sent_bytes / meraki_uplink_usage_window_seconds. The underlying metric is a sum over the poll window, NOT a counter — rate() or increase() on it would be meaningless. Reported per site and interface: the API returns usage per network, so an HA pair aggregates at the site level and cannot be split per appliance.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [
+        { "refId": "A", "expr": "meraki_uplink_sent_bytes{network_name=~\"$network\"} / on(job, instance) group_left() meraki_uplink_usage_window_seconds", "legendFormat": "{{network_name}} {{interface}}" }
+      ],
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] } },
+      "fieldConfig": { "defaults": { "unit": "Bps", "min": 0, "custom": { "fillOpacity": 10 } }, "overrides": [] }
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "Uplink Traffic Received",
+      "description": "Throughput derived from the windowed byte count: meraki_uplink_received_bytes / meraki_uplink_usage_window_seconds. Same caveats as the sent panel — windowed sum rather than a counter, and per site rather than per appliance.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [
+        { "refId": "A", "expr": "meraki_uplink_received_bytes{network_name=~\"$network\"} / on(job, instance) group_left() meraki_uplink_usage_window_seconds", "legendFormat": "{{network_name}} {{interface}}" }
+      ],
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] } },
+      "fieldConfig": { "defaults": { "unit": "Bps", "min": 0, "custom": { "fillOpacity": 10 } }, "overrides": [] }
     },
     {
       "id": 9,
       "type": "bargauge",
       "title": "Top 10 Uplinks by Packet Loss",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 9, "w": 8, "x": 0, "y": 12 },
+      "gridPos": { "h": 9, "w": 8, "x": 0, "y": 20 },
       "targets": [
-        { "refId": "A", "expr": "topk(10, meraki_uplink_loss_percent{network_name=~\"$network\"})", "instant": true, "legendFormat": "{{network_name}} / {{serial}} {{interface}} ({{ip}})" }
+        { "refId": "A", "expr": "topk(10, meraki_uplink_loss_percent{network_name=~\"$network\"})", "instant": true, "legendFormat": "{{network_name}} {{role}} {{interface}} ({{ip}}) / {{serial}}" }
       ],
       "options": { "orientation": "horizontal", "displayMode": "gradient", "reduceOptions": { "calcs": ["lastNotNull"] } },
       "fieldConfig": {
@@ -164,9 +190,9 @@
       "type": "bargauge",
       "title": "Top 10 Uplinks by Latency",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 9, "w": 8, "x": 8, "y": 12 },
+      "gridPos": { "h": 9, "w": 8, "x": 8, "y": 20 },
       "targets": [
-        { "refId": "A", "expr": "topk(10, meraki_uplink_latency_seconds{network_name=~\"$network\"})", "instant": true, "legendFormat": "{{network_name}} / {{serial}} {{interface}} ({{ip}})" }
+        { "refId": "A", "expr": "topk(10, meraki_uplink_latency_seconds{network_name=~\"$network\"})", "instant": true, "legendFormat": "{{network_name}} {{role}} {{interface}} ({{ip}}) / {{serial}}" }
       ],
       "options": { "orientation": "horizontal", "displayMode": "gradient", "reduceOptions": { "calcs": ["lastNotNull"] } },
       "fieldConfig": {
@@ -183,7 +209,7 @@
       "type": "table",
       "title": "Current Uplink Status",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 12 },
+      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 20 },
       "targets": [
         { "refId": "A", "expr": "meraki_uplink_status{network_name=~\"$network\"} == 1", "instant": true, "format": "table" }
       ],
@@ -191,61 +217,9 @@
         {
           "id": "organize",
           "options": {
-            "excludeByName": { "Time": true, "Value": true, "__name__": true, "job": true, "instance": true, "network_id": true },
-            "indexByName": { "serial": 0, "network_name": 1, "interface": 2, "status": 3 },
-            "renameByName": { "serial": "Appliance", "network_name": "Network", "interface": "Interface", "status": "Status" }
-          }
-        }
-      ],
-      "fieldConfig": { "defaults": {}, "overrides": [] }
-    },
-    {
-      "id": 12,
-      "type": "stat",
-      "title": "VPN Peers Reachable",
-      "description": "Requires the opt-in vpn collector (COLLECTORS_ENABLED=...,vpn).",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 21 },
-      "targets": [
-        { "refId": "A", "expr": "count(meraki_vpn_peer_status{status=\"reachable\",network_name=~\"$network\"} == 1) or vector(0)", "instant": true }
-      ],
-      "fieldConfig": { "defaults": { "unit": "none", "color": { "mode": "fixed", "fixedColor": "green" } }, "overrides": [] }
-    },
-    {
-      "id": 13,
-      "type": "stat",
-      "title": "VPN Peers Unreachable",
-      "description": "Requires the opt-in vpn collector (COLLECTORS_ENABLED=...,vpn).",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 21 },
-      "targets": [
-        { "refId": "A", "expr": "count(meraki_vpn_peer_status{status=\"unreachable\",network_name=~\"$network\"} == 1) or vector(0)", "instant": true }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none",
-          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] }
-        },
-        "overrides": []
-      }
-    },
-    {
-      "id": 14,
-      "type": "table",
-      "title": "Current VPN Peer Status",
-      "description": "Requires the opt-in vpn collector (COLLECTORS_ENABLED=...,vpn).",
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 21 },
-      "targets": [
-        { "refId": "A", "expr": "meraki_vpn_peer_status{network_name=~\"$network\"} == 1", "instant": true, "format": "table" }
-      ],
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": { "Time": true, "Value": true, "__name__": true, "job": true, "instance": true, "network_id": true },
-            "indexByName": { "network_name": 0, "peer_type": 1, "peer_name": 2, "status": 3 },
-            "renameByName": { "network_name": "Network", "peer_type": "Peer Type", "peer_name": "Peer", "status": "Status" }
+            "excludeByName": { "Time": true, "Value": true, "__name__": true, "job": true, "instance": true, "namespace": true, "service": true, "endpoint": true, "network_id": true },
+            "indexByName": { "serial": 0, "network_name": 1, "role": 2, "interface": 3, "status": 4 },
+            "renameByName": { "serial": "Appliance", "network_name": "Network", "role": "Role", "interface": "Interface", "status": "Status" }
           }
         }
       ],
@@ -257,7 +231,7 @@
       "title": "Warm Spare Failover",
       "description": "HA-enabled primaries with no active uplink — the spare has most likely taken over. 0 is healthy. A spare holding an active uplink is normal standby, not failover.",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 30 },
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 29 },
       "targets": [
         { "refId": "A", "expr": "count(((meraki_appliance_ha_role{role=\"primary\",network_name=~\"$network\"} == 1) and on(serial) (meraki_appliance_ha_enabled == 1)) unless on(serial) (max by (serial) (meraki_uplink_status{status=\"active\"} == 1))) or vector(0)", "instant": true }
       ],
@@ -275,7 +249,7 @@
       "title": "HA Appliances (warm spare)",
       "description": "Current warm-spare role per HA-enabled appliance.",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "gridPos": { "h": 8, "w": 18, "x": 6, "y": 30 },
+      "gridPos": { "h": 8, "w": 18, "x": 6, "y": 29 },
       "targets": [
         { "refId": "A", "expr": "(meraki_appliance_ha_role{network_name=~\"$network\"} == 1) and on(serial) (meraki_appliance_ha_enabled == 1)", "instant": true, "format": "table" }
       ],
@@ -283,7 +257,7 @@
         {
           "id": "organize",
           "options": {
-            "excludeByName": { "Time": true, "Value": true, "__name__": true, "job": true, "instance": true, "network_id": true },
+            "excludeByName": { "Time": true, "Value": true, "__name__": true, "job": true, "instance": true, "namespace": true, "service": true, "endpoint": true, "network_id": true },
             "indexByName": { "serial": 0, "network_name": 1, "role": 2 },
             "renameByName": { "serial": "Appliance", "network_name": "Network", "role": "Role" }
           }

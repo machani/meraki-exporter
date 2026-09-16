@@ -6,8 +6,8 @@
   "schemaVersion": 39,
   "editable": true,
   "graphTooltip": 1,
-  "time": { "from": "now-6h", "to": "now" },
-  "refresh": "1m",
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "",
   "templating": {
     "list": [
       {
@@ -110,11 +110,12 @@
     {
       "id": 6,
       "type": "stat",
-      "title": "Clients (org, lookback window)",
+      "title": "Clients (selected networks)",
+      "description": "Sum of the per-network client counts, so it follows the Network filter. Deliberately NOT meraki_org_clients: that series carries no network labels and so cannot be filtered, which made this tile look frozen when a single site was selected. It also uses a different window - the Meraki org endpoint forces >= 24h - so the org-wide total on the Overview dashboard reads higher than the sum here. Window for this tile is CLIENTS_TIMESPAN.",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
       "targets": [
-        { "refId": "A", "expr": "meraki_org_clients", "instant": true }
+        { "refId": "A", "expr": "sum(meraki_network_clients{network_name=~\"$network\"}) or vector(0)", "instant": true }
       ],
       "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] }
     },
@@ -154,9 +155,9 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "topk(10, max by (serial, band) (meraki_wireless_channel_utilization_percent{kind=\"total\",network_name=~\"$network\"}) * on(serial) group_left(name) meraki_device_info)",
+          "expr": "topk(10, max by (serial, band, network_name) (meraki_wireless_channel_utilization_percent{kind=\"total\",network_name=~\"$network\"}) * on(serial) group_left(name) meraki_device_info)",
           "instant": true,
-          "legendFormat": "{{name}} ({{band}} GHz)"
+          "legendFormat": "{{network_name}} / {{name}} ({{band}} GHz)"
         }
       ],
       "options": { "orientation": "horizontal", "displayMode": "gradient", "reduceOptions": { "calcs": ["lastNotNull"] } },
@@ -171,9 +172,23 @@
       }
     },
     {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Heavy-Usage Clients per Network",
+      "description": "Clients Meraki classifies as heavy users, from meraki_network_clients_heavy_usage — collected since the clients collector was added but never displayed until now. Read alongside the total client count to the left: a site where heavy users are a large share of the total is a different capacity story from one with many light clients. The clients collector is in the SLOW poll group, so this refreshes every SLOW_SCRAPE_INTERVAL - 30m on a 5m/30m profile. On the dashboard's default 1h range that is roughly two updates, so a flat line here means the data has not been re-collected yet, NOT that nothing is happening. Widen the time range to see a trend. meraki_exporter_last_poll_timestamp_seconds{group=\"slow\"} shows when it last ran.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 21 },
+      "targets": [
+        { "refId": "A", "expr": "meraki_network_clients_heavy_usage{network_name=~\"$network\"}", "legendFormat": "{{network_name}}" }
+      ],
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] } },
+      "fieldConfig": { "defaults": { "unit": "none", "min": 0, "custom": { "fillOpacity": 10 } }, "overrides": [] }
+    },
+    {
       "id": 10,
       "type": "timeseries",
       "title": "Clients per Network",
+      "description": "Per-network client counts over the lookback window set by CLIENTS_TIMESPAN. These are ALL clients, not only wireless ones: the metric is not broken down by connection type. The clients collector is in the SLOW poll group, so this refreshes every SLOW_SCRAPE_INTERVAL - 30m on a 5m/30m profile. On the dashboard's default 1h range that is roughly two updates, so a flat line here means the data has not been re-collected yet, NOT that nothing is happening. Widen the time range to see a trend. meraki_exporter_last_poll_timestamp_seconds{group=\"slow\"} shows when it last ran.",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 9, "w": 12, "x": 12, "y": 12 },
       "targets": [
