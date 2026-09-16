@@ -58,7 +58,7 @@ chmod +x meraki-exporter-linux-amd64
 
 ### Option B: build from source
 
-Requires Go 1.25+ to satisfy the `go` directive; `go.mod` also pins `toolchain go1.26.5`, so any Go ≥ 1.21 will download and use the right toolchain automatically.
+Requires Go 1.25+ to satisfy the `go` directive; `go.mod` also pins `toolchain go1.26.6`, so any Go ≥ 1.21 will download and use the right toolchain automatically.
 
 ```sh
 go mod tidy
