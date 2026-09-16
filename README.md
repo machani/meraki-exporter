@@ -124,7 +124,7 @@ Alerting rules are in [prometheus/alerts.yml](prometheus/alerts.yml) (device off
 
 ## Grafana
 
-Four importable dashboards live in [grafana/](grafana/) — overview, device health, uplink/WAN quality, and wireless — see [grafana/README.md](grafana/README.md) for what each contains and how to import them.
+Six importable dashboards live in [grafana/](grafana/) — overview, exporter health, device health, uplink/WAN quality, VPN, and wireless — see [grafana/README.md](grafana/README.md) for what each contains and how to import them. Count tiles and the product-type donut are clickable, drilling through to the rows behind them with the current time range and network selection carried across.
 
 | Overview | Device health |
 |---|---|

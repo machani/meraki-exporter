@@ -1,0 +1,223 @@
+{
+  "title": "Meraki Exporter Health",
+  "uid": "meraki-exporter-health",
+  "description": "Is the exporter itself working? Collector success, poll freshness, and API budget from meraki-exporter. Deliberately has no Network filter: none of these metrics carry network labels, because they describe the exporter and the organization rather than any site.",
+  "tags": ["meraki", "exporter", "health"],
+  "schemaVersion": 39,
+  "editable": true,
+  "graphTooltip": 1,
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "",
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "label": "Data source",
+        "query": "prometheus",
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Scrape Target Up",
+      "description": "up{job=~\"meraki.*\"} across every Meraki scrape job. 0 means Prometheus cannot reach the exporter at all, in which case every other panel here is showing stale data or nothing.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "targets": [
+        { "refId": "A", "expr": "min(up{job=~\"meraki.*\"})", "instant": true }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "mappings": [ { "type": "value", "options": { "1": { "text": "UP", "color": "green", "index": 0 }, "0": { "text": "DOWN", "color": "red", "index": 1 } } } ]
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Collectors Failing",
+      "description": "Collectors whose last run returned an error. A collector that fails reports nothing for its whole dataset, so this going above zero means metrics are missing somewhere — see the table below for which. Note a DISABLED collector emits no series at all and cannot appear here; check COLLECTORS_ENABLED if something is missing while this reads 0.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "targets": [
+        { "refId": "A", "expr": "count(meraki_exporter_collector_success == 0) or vector(0)", "instant": true }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Collectors Running",
+      "description": "How many collectors are enabled and reporting. Compare against COLLECTORS_ENABLED: a lower number means a collector is switched off, which produces no failure signal anywhere.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "targets": [
+        { "refId": "A", "expr": "count(meraki_exporter_collector_success) or vector(0)", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none", "color": { "mode": "fixed", "fixedColor": "blue" } }, "overrides": [] }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Fast Poll Age",
+      "description": "Time since the fast group last completed a poll. Thresholds match MerakiExporterFastGroupStale (critical above 15m, which is 3x a 5m poll interval).",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "targets": [
+        { "refId": "A", "expr": "time() - meraki_exporter_last_poll_timestamp_seconds{group=\"fast\"}", "instant": true }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 600 }, { "color": "red", "value": 900 } ] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Slow Poll Age",
+      "description": "Time since the slow group last completed a poll. Thresholds match MerakiExporterSlowGroupStale (warning above 90m). If this reads No Data, no collectors are assigned to the slow group at all.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "targets": [
+        { "refId": "A", "expr": "time() - meraki_exporter_last_poll_timestamp_seconds{group=\"slow\"}", "instant": true }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 3600 }, { "color": "red", "value": 5400 } ] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Organization",
+      "description": "Which organization this exporter is monitoring, from meraki_org_info. An empty name means the configured MERAKI_ORG_ID is not visible to the API key — the exporter warns once and then keeps running while producing failures.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "targets": [
+        { "refId": "A", "expr": "meraki_org_info", "instant": true, "legendFormat": "{{org_name}}" }
+      ],
+      "options": { "textMode": "name", "colorMode": "none" },
+      "fieldConfig": { "defaults": {}, "overrides": [] }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Collector Success Over Time",
+      "description": "1 = the collector's last run succeeded, 0 = it failed. Drops to 0 mean that collector's entire dataset was missing for that period. A line disappearing entirely means the collector was disabled or the exporter restarted without it.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [
+        { "refId": "A", "expr": "meraki_exporter_collector_success", "legendFormat": "{{collector}}" }
+      ],
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["min"] } },
+      "fieldConfig": {
+        "defaults": { "unit": "none", "min": 0, "max": 1, "custom": { "fillOpacity": 10, "lineWidth": 2 } },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Collector Status Now",
+      "description": "Current state of every enabled collector. Anything reading FAILING is reporting no data for its whole dataset.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [
+        { "refId": "A", "expr": "meraki_exporter_collector_success", "instant": true, "format": "table" }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true, "__name__": true, "job": true, "instance": true, "namespace": true, "service": true, "endpoint": true },
+            "indexByName": { "collector": 0, "Value": 1 },
+            "renameByName": { "collector": "Collector", "Value": "State" }
+          }
+        },
+        { "id": "sortBy", "options": { "sort": [ { "field": "State", "desc": false } ] } }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "State" },
+            "properties": [
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              { "id": "mappings", "value": [ { "type": "value", "options": { "1": { "text": "OK", "color": "green", "index": 0 }, "0": { "text": "FAILING", "color": "red", "index": 1 } } } ] }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Collector Duration",
+      "description": "How long each collector's last run took. Watch this against the poll interval of its group: a collector approaching its interval will start having polls aborted. The clients collector is the usual first offender because it makes one API call per network.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [
+        { "refId": "A", "expr": "meraki_exporter_collector_duration_seconds", "legendFormat": "{{collector}}" }
+      ],
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] } },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0, "custom": { "fillOpacity": 10 } }, "overrides": [] }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Poll Age by Group",
+      "description": "Seconds since each poll group last completed. Should saw-tooth up to roughly the group's interval and reset. A line that climbs without resetting means that group has stopped polling.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [
+        { "refId": "A", "expr": "time() - meraki_exporter_last_poll_timestamp_seconds", "legendFormat": "{{group}}" }
+      ],
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["max"] } },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0, "custom": { "fillOpacity": 10 } }, "overrides": [] }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Exporter API Requests by Status Code",
+      "description": "Requests this exporter makes to the Meraki API, by HTTP status. 429s mean it is being rate limited — the client self-limits to about 5 req/s, half the per-org budget, so sustained 429s usually mean another consumer is using the same budget.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "targets": [
+        { "refId": "A", "expr": "sum by (code) (rate(meraki_exporter_api_requests_total[15m]))", "legendFormat": "{{code}}" }
+      ],
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] } },
+      "fieldConfig": { "defaults": { "unit": "reqps", "min": 0, "custom": { "fillOpacity": 10 } }, "overrides": [] }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Org-wide API Response Codes (24h window)",
+      "description": "Counts across ALL API consumers in the organization, not just this exporter, over a rolling 24h window — so it is a slow-moving total rather than a rate. A rising 429 line with a flat exporter 429 line on the left means someone else is eating the budget. Requires the apiusage collector.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "targets": [
+        { "refId": "A", "expr": "meraki_org_api_response_codes", "legendFormat": "{{code}}" }
+      ],
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["max"] } },
+      "fieldConfig": { "defaults": { "unit": "none", "min": 0, "custom": { "fillOpacity": 10 } }, "overrides": [] }
+    }
+  ]
+}
